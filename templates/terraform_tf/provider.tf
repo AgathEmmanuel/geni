@@ -1,0 +1,5 @@
+# GCP Provider
+provider "google" {
+  project = "__project_name__"
+  region  = "us-central1"
+}

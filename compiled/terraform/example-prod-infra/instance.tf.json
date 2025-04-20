@@ -1,0 +1,27 @@
+{
+  "resource": {
+    "google_compute_instance": {
+      "default": [
+        {
+          "boot_disk": [
+            {
+              "initialize_params": [
+                {
+                  "image": "ubuntu-minimal-2210-kinetic-amd64-v20230126"
+                }
+              ]
+            }
+          ],
+          "machine_type": "n1-standard-1",
+          "name": "test-instance-1",
+          "network_interface": [
+            {
+              "network": "__project_name__-vpc"
+            }
+          ],
+          "zone": "us-central1-a"
+        }
+      ]
+    }
+  }
+}

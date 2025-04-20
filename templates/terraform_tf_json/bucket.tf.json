@@ -1,0 +1,24 @@
+{
+  "resource": [
+    {
+      "google_storage_bucket": [
+        {
+          "bucket_test": [
+            {
+              "force_destroy": false,
+              "location": "US",
+              "name": "__bucket_name__",
+              "public_access_prevention": "enforced",
+              "uniform_bucket_level_access": true,
+              "versioning": [
+                {
+                  "enabled": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

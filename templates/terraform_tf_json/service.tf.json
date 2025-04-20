@@ -1,0 +1,12 @@
+{
+    "resource": {
+        "google_project_service": {
+            "__service_name_key__": [
+                {
+                    "project": "__project_name__",
+                    "service": "__service_name__"
+                }
+            ]
+        }
+    }
+}

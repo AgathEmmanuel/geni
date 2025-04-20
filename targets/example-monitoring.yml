@@ -1,0 +1,23 @@
+data:
+  project: example-prod-1234
+compiled: compiled/kubernetes/example-monitoring
+
+resources:
+
+  namespace:
+    template: kubernetes/namespace.yml
+    parameter:
+      namespace: monitoring
+
+  opentelemetry-operator:
+    chart: helm/charts/opentelemetry-operator
+    value: helm/values/opentelemetry-operator-values.yml
+    parameter:
+      namespace: monitoring
+
+  kube-state-metrics:
+    # https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-state-metrics
+    chart: helm/charts/kube-state-metrics
+    value: helm/values/kube-state-metrics-values.yml
+    parameter:
+      namespace: monitoring

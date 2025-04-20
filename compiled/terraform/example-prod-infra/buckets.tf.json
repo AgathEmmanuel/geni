@@ -1,0 +1,24 @@
+{
+  "resource": [
+    {
+      "google_storage_bucket": [
+        {
+          "test-bucket-azadsf-1": [
+            {
+              "force_destroy": false,
+              "location": "US",
+              "name": "test-bucket-azadsf-1",
+              "public_access_prevention": "enforced",
+              "uniform_bucket_level_access": true,
+              "versioning": [
+                {
+                  "enabled": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

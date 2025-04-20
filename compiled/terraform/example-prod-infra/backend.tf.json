@@ -1,0 +1,14 @@
+{
+  "terraform": [
+    {
+      "backend": {
+        "gcs": [
+          {
+            "bucket": "terraform-bucket-example",
+            "prefix": "example-prod"
+          }
+        ]
+      }
+    }
+  ]
+}

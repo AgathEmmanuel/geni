@@ -1,0 +1,48 @@
+{
+  "resource": {
+    "google_project_service": {
+      "compute_googleapis_com_key": [
+        {
+          "project": "example-prod-1234",
+          "service": "compute.googleapis.com"
+        }
+      ],
+      "container_googleapis_com_key": [
+        {
+          "project": "example-prod-1234",
+          "service": "container.googleapis.com"
+        }
+      ],
+      "iam_googleapis_com_key": [
+        {
+          "project": "example-prod-1234",
+          "service": "iam.googleapis.com"
+        }
+      ],
+      "iap_googleapis_com_key": [
+        {
+          "project": "example-prod-1234",
+          "service": "iap.googleapis.com"
+        }
+      ],
+      "logging_googleapis_com_key": [
+        {
+          "project": "example-prod-1234",
+          "service": "logging.googleapis.com"
+        }
+      ],
+      "monitoring_googleapis_com_key": [
+        {
+          "project": "example-prod-1234",
+          "service": "monitoring.googleapis.com"
+        }
+      ],
+      "cloudbilling_googleapis_com_key": [
+        {
+          "project": "example-prod-1234",
+          "service": "cloudbilling.googleapis.com"
+        }
+      ]
+    }
+  }
+}

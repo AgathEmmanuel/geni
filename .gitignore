@@ -1,0 +1,6 @@
+components/__pycache__/*
+
+compiled/terraform/*/.terraform
+compiled/terraform/*/.terraform.*
+
+#templates/tf_files/learn-terraform-provision-gke-cluster

@@ -1,0 +1,72 @@
+data:
+  project: example-prod-1234
+compiled: compiled/terraform/example-prod-infra
+resources:
+  backend:
+    template: terraform_tf/backend.tf
+    parameter:
+      bucket_name: terraform-bucket-example
+      tfstate_prefix: example-prod
+ 
+  provider:
+    template: terraform_tf/provider.tf
+    parameter:
+      project_name: data.project
+
+  buckets:
+    component: components/random_bucket.py
+    parameter:
+      project_name: data.project
+
+  services:
+    component: components/enable_services.py
+    parameter:
+      project_name: data.project
+      services:
+        - compute.googleapis.com
+        - container.googleapis.com
+  #      #- cloudresourcemanager.googleapis.com
+        - iam.googleapis.com
+        - iap.googleapis.com
+  #      #- servicenetworking.googleapis.com
+  #      - storage.googleapis.com
+        - logging.googleapis.com
+        - monitoring.googleapis.com
+        - cloudbilling.googleapis.com
+  #      - cloudfunctions.googleapis.com
+  #      - pubsub.googleapis.com
+  #      - bigquery.googleapis.com
+  #      - cloudbuild.googleapis.com
+  #      - artifactregistry.googleapis.com
+  #      #- run.googleapis.com
+  #      #- sqladmin.googleapis.com
+  #      #- secretmanager.googleapis.com
+  #      #- bigtable.googleapis.com
+  #      #- redis.googleapis.com
+  #      #- dataflow.googleapis.com
+  #      #- dataproc.googleapis.com
+  #      #- apigateway.googleapis.com
+  #      #- networkservices.googleapis.com
+  #      - cloudkms.googleapis.com
+  #      #- cloudasset.googleapis.com
+  #      #- cloudiot.googleapis.com
+  #      #- cloudscheduler.googleapis.com
+  #      - cloudpubsub.googleapis.com
+  #      - cloudrun.googleapis.com
+  #      #- cloudtasks.googleapis.com
+  #      - cloudtrace.googleapis.com
+  #      - clouddebugger.googleapis.com
+  #      - cloudprofiler.googleapis.com
+
+  instance:
+    template: terraform_tf/instance.tf
+    parameter:
+      name: test-instance-1
+      network: test-network-1
+
+  cluster_autopilot:
+    template: terraform_tf/cluster_autopilot.tf
+    parameter:
+      project_name: data.project
+      region: us-central1
+      autopilot: true
