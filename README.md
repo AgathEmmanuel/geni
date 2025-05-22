@@ -4,12 +4,13 @@
 
 ---
 
-## 🚀 Working
+## 🎛 Working
+
+
+![Geni-Working](https://github.com/AgathEmmanuel/geni/blob/main/Geni-Working.drawio.png)  
+
 
 templates -> geni -> compiled(targets)  
-
-
-
 
 
 ## 🚀 Features
