@@ -4,6 +4,14 @@
 
 ---
 
+## 🚀 Working
+
+templates -> geni -> compiled(targets)  
+
+
+
+
+
 ## 🚀 Features
 
 - 📁 Compile multiple resources into a unified structure.
@@ -26,6 +34,13 @@ geni/
 │   │       ├── namespace.yml
 │   │       └── opentelemetry-operator
 │   └── terraform
+│       ├─── example-dev-infra
+│       |   ├── backend.tf.json
+│       |   ├── buckets.tf.json
+│       |   ├── cluster_autopilot.tf.json
+│       |   ├── instance.tf.json
+│       |   ├── provider.tf.json
+│       |   └── services.tf.json
 │       └── example-prod-infra
 │           ├── backend.tf.json
 │           ├── buckets.tf.json
@@ -33,6 +48,7 @@ geni/
 │           ├── instance.tf.json
 │           ├── provider.tf.json
 │           └── services.tf.json
+|
 ├── components
 │   ├── enable_services.py
 │   └── random_bucket.py
@@ -40,6 +56,7 @@ geni/
 ├── README.md
 ├── targets
 │   ├── example-monitoring.yml
+│   ├── example-dev-infra.yml
 │   └── example-prod-infra.yml
 ├── templates
 │   ├── helm
