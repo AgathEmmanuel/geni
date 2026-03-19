@@ -47,12 +47,25 @@ pip install geni
 pipx install geni
 ```
 
-Install from source:
+Install from source (no PyPI needed):
+
+```bash
+# Automated: clones repo, creates venv, installs to ~/.local/bin/geni
+GENI_INSTALL=source curl -fsSL https://raw.githubusercontent.com/AgathEmmanuel/geni/main/install.sh | sh
+```
+
+Or manually from a cloned repo:
 
 ```bash
 git clone https://github.com/AgathEmmanuel/geni.git
 cd geni
+python3 -m venv .venv
+source .venv/bin/activate
 pip install .
+geni --version
+
+# Or run directly without installing:
+PYTHONPATH=src python3 -m geni --version
 ```
 
 Install a specific version:

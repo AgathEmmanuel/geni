@@ -1,0 +1,140 @@
+apiVersion: geni.io/v1alpha1
+kind: Target
+metadata:
+  name: dev
+  labels:
+    environment: dev
+    cloud: azure
+    region: eastus
+spec:
+  data:
+    project: myazureproject
+    location: eastus
+    environment: dev
+    resource_group_name: rg-myazureproject-dev
+    subscription_id: "YOUR_SUBSCRIPTION_ID"
+    tenant_id: "YOUR_TENANT_ID"
+    cluster_name: dev-cluster
+    vnet_cidr: "10.0.0.0/16"
+    subnet_default_cidr: "10.0.1.0/24"
+    subnet_aks_cidr: "10.0.2.0/23"
+    subnet_database_cidr: "10.0.4.0/24"
+    subnet_bastion_cidr: "10.0.5.0/24"
+    db_name: appdb
+    db_user: appuser
+    db_sku: B_Standard_B1ms
+    db_storage_mb: 32768
+    vm_size: Standard_B2s
+    vm_admin_username: azureadmin
+    k8s_vm_size: Standard_D2s_v3
+    k8s_node_count: 2
+    k8s_min_count: 1
+    k8s_max_count: 5
+    k8s_version: "1.28"
+    storage_account_name: stmyazureprojectdev
+    tfstate_resource_group: rg-myazureproject-tfstate
+    tfstate_storage_account: stmyazureprojecttfstate
+    tfstate_container: tfstate
+    app_name: sample-app
+    app_namespace: sample-app
+    app_image: nginx:1.25
+    app_port: 80
+    app_replicas: 2
+    containers:
+      - app-data
+      - app-logs
+  output: compiled/dev
+  resources:
+    backend:
+      template: terraform/backend.tf
+      params:
+        resource_group_name: ${{ data.tfstate_resource_group }}
+        storage_account_name: ${{ data.tfstate_storage_account }}
+        container_name: ${{ data.tfstate_container }}
+        key: ${{ data.project }}-${{ data.environment }}.tfstate
+    provider:
+      template: terraform/provider.tf
+      params:
+        subscription_id: ${{ data.subscription_id }}
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+        location: ${{ data.location }}
+    networking:
+      template: terraform/networking.py
+      params:
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+        location: ${{ data.location }}
+        resource_group_name: ${{ data.resource_group_name }}
+        vnet_cidr: ${{ data.vnet_cidr }}
+        subnet_default_cidr: ${{ data.subnet_default_cidr }}
+        subnet_aks_cidr: ${{ data.subnet_aks_cidr }}
+        subnet_database_cidr: ${{ data.subnet_database_cidr }}
+        subnet_bastion_cidr: ${{ data.subnet_bastion_cidr }}
+    iam:
+      template: terraform/iam.py
+      params:
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+        location: ${{ data.location }}
+        resource_group_name: ${{ data.resource_group_name }}
+        subscription_id: ${{ data.subscription_id }}
+        cluster_name: ${{ data.cluster_name }}
+        app_namespace: ${{ data.app_namespace }}
+    storage:
+      template: terraform/storage.py
+      params:
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+        location: ${{ data.location }}
+        resource_group_name: ${{ data.resource_group_name }}
+        storage_account_name: ${{ data.storage_account_name }}
+        containers: ${{ data.containers }}
+    compute:
+      template: terraform/compute.py
+      params:
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+        location: ${{ data.location }}
+        resource_group_name: ${{ data.resource_group_name }}
+        vm_size: ${{ data.vm_size }}
+        admin_username: ${{ data.vm_admin_username }}
+    database:
+      template: terraform/database.py
+      params:
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+        location: ${{ data.location }}
+        resource_group_name: ${{ data.resource_group_name }}
+        db_name: ${{ data.db_name }}
+        db_user: ${{ data.db_user }}
+        db_sku: ${{ data.db_sku }}
+        db_storage_mb: ${{ data.db_storage_mb }}
+    kubernetes:
+      template: terraform/kubernetes.py
+      params:
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+        location: ${{ data.location }}
+        resource_group_name: ${{ data.resource_group_name }}
+        cluster_name: ${{ data.cluster_name }}
+        k8s_vm_size: ${{ data.k8s_vm_size }}
+        k8s_node_count: ${{ data.k8s_node_count }}
+        k8s_min_count: ${{ data.k8s_min_count }}
+        k8s_max_count: ${{ data.k8s_max_count }}
+        k8s_version: ${{ data.k8s_version }}
+    outputs:
+      template: terraform/outputs.py
+      params:
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+    sample_app:
+      template: kubernetes/sample_app.py
+      params:
+        app_name: ${{ data.app_name }}
+        app_namespace: ${{ data.app_namespace }}
+        app_image: ${{ data.app_image }}
+        app_port: ${{ data.app_port }}
+        app_replicas: ${{ data.app_replicas }}
+        db_name: ${{ data.db_name }}
+        storage_account_name: ${{ data.storage_account_name }}

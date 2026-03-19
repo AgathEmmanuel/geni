@@ -1,0 +1,124 @@
+apiVersion: geni.io/v1alpha1
+kind: Target
+metadata:
+  name: dev
+  labels:
+    environment: dev
+    team: platform
+spec:
+  data:
+    project: my-gcp-project
+    region: us-central1
+    zone: us-central1-a
+    environment: dev
+    cluster_name: dev-cluster
+    network_name: dev-network
+    db_instance_name: dev-db
+    db_name: appdb
+    db_user: appuser
+    machine_type: e2-medium
+    app_name: sample-app
+    app_namespace: sample-app
+    app_image: nginx:1.25
+    app_port: 80
+
+  output: compiled/dev
+
+  resources:
+    backend:
+      template: terraform/backend.tf
+      params:
+        bucket_name: my-gcp-project-tfstate
+        tfstate_prefix: dev
+
+    provider:
+      template: terraform/provider.tf
+      params:
+        project: ${{ data.project }}
+        region: ${{ data.region }}
+
+    networking:
+      template: terraform/networking.py
+      params:
+        project: ${{ data.project }}
+        region: ${{ data.region }}
+        environment: ${{ data.environment }}
+        network_name: ${{ data.network_name }}
+        subnet_cidr: "10.0.0.0/20"
+        pods_cidr: "10.16.0.0/14"
+        services_cidr: "10.20.0.0/20"
+
+    iam:
+      template: terraform/iam.py
+      params:
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+        app_name: ${{ data.app_name }}
+        cluster_name: ${{ data.cluster_name }}
+        app_namespace: ${{ data.app_namespace }}
+
+    storage:
+      template: terraform/storage.py
+      params:
+        project: ${{ data.project }}
+        region: ${{ data.region }}
+        environment: ${{ data.environment }}
+        buckets:
+          - name: app-assets
+            versioning: true
+            lifecycle_age: 90
+          - name: app-backups
+            versioning: true
+            lifecycle_age: 365
+          - name: app-uploads
+            versioning: false
+            lifecycle_age: 30
+
+    compute:
+      template: terraform/compute.py
+      params:
+        project: ${{ data.project }}
+        zone: ${{ data.zone }}
+        environment: ${{ data.environment }}
+        machine_type: ${{ data.machine_type }}
+        network_name: ${{ data.network_name }}
+
+    database:
+      template: terraform/database.py
+      params:
+        project: ${{ data.project }}
+        region: ${{ data.region }}
+        environment: ${{ data.environment }}
+        db_instance_name: ${{ data.db_instance_name }}
+        db_name: ${{ data.db_name }}
+        db_user: ${{ data.db_user }}
+        network_name: ${{ data.network_name }}
+
+    kubernetes:
+      template: terraform/kubernetes.py
+      params:
+        project: ${{ data.project }}
+        region: ${{ data.region }}
+        environment: ${{ data.environment }}
+        cluster_name: ${{ data.cluster_name }}
+        network_name: ${{ data.network_name }}
+
+    outputs:
+      template: terraform/outputs.py
+      params:
+        environment: ${{ data.environment }}
+        cluster_name: ${{ data.cluster_name }}
+        db_instance_name: ${{ data.db_instance_name }}
+        network_name: ${{ data.network_name }}
+
+    sample_app:
+      template: kubernetes/sample_app.py
+      params:
+        app_name: ${{ data.app_name }}
+        app_namespace: ${{ data.app_namespace }}
+        app_image: ${{ data.app_image }}
+        app_port: ${{ data.app_port }}
+        environment: ${{ data.environment }}
+        project: ${{ data.project }}
+        db_name: ${{ data.db_name }}
+        db_instance_name: ${{ data.db_instance_name }}

@@ -8,7 +8,11 @@ set -e
 #
 # Options (environment variables):
 #   GENI_VERSION=0.1.0    Install a specific version (default: latest)
+#   GENI_INSTALL=source   Install from source (clones repo, no PyPI needed)
 #   GENI_INSTALL=pip      Force pip instead of pipx
+
+GENI_REPO="https://github.com/AgathEmmanuel/geni.git"
+GENI_HOME="${GENI_HOME:-$HOME/.geni}"
 
 BOLD='\033[1m'
 GREEN='\033[0;32m'
@@ -53,9 +57,9 @@ if [ -z "$PYTHON" ]; then
         echo "    brew install python@3.12"
     else
         echo "  Install with your package manager:"
-        echo "    sudo apt install python3    # Debian/Ubuntu"
-        echo "    sudo dnf install python3    # Fedora"
-        echo "    sudo pacman -S python       # Arch"
+        echo "    sudo apt install python3 python3-venv    # Debian/Ubuntu"
+        echo "    sudo dnf install python3                 # Fedora"
+        echo "    sudo pacman -S python                    # Arch"
     fi
     echo ""
     echo "  Or download from: https://www.python.org/downloads/"
@@ -72,7 +76,60 @@ else
     PACKAGE="geni"
 fi
 
-# --- Install pipx if not present ---
+# ===========================================================================
+# Install from source: clone repo, create venv, install locally, add to PATH
+# ===========================================================================
+install_from_source() {
+    info "Installing geni from source..."
+
+    # Check for git
+    if ! command -v git >/dev/null 2>&1; then
+        error "git is required for source install. Install git and try again."
+    fi
+
+    # Clone or update
+    if [ -d "$GENI_HOME/repo" ]; then
+        info "Updating existing repo at $GENI_HOME/repo..."
+        git -C "$GENI_HOME/repo" pull --ff-only 2>/dev/null || {
+            warn "Pull failed, re-cloning..."
+            rm -rf "$GENI_HOME/repo"
+            git clone "$GENI_REPO" "$GENI_HOME/repo"
+        }
+    else
+        mkdir -p "$GENI_HOME"
+        git clone "$GENI_REPO" "$GENI_HOME/repo"
+    fi
+
+    # Checkout specific version if requested
+    if [ -n "$GENI_VERSION" ]; then
+        info "Checking out v$GENI_VERSION..."
+        git -C "$GENI_HOME/repo" checkout "v$GENI_VERSION" 2>/dev/null || \
+        git -C "$GENI_HOME/repo" checkout "$GENI_VERSION"
+    fi
+
+    # Create venv
+    info "Creating virtual environment..."
+    "$PYTHON" -m venv "$GENI_HOME/venv"
+
+    # Install into the venv
+    info "Installing geni and dependencies into venv..."
+    "$GENI_HOME/venv/bin/pip" install --upgrade pip >/dev/null 2>&1
+    "$GENI_HOME/venv/bin/pip" install "$GENI_HOME/repo" >/dev/null 2>&1
+
+    # Create wrapper script in ~/.local/bin
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/geni" <<WRAPPER
+#!/usr/bin/env sh
+exec "$GENI_HOME/venv/bin/geni" "\$@"
+WRAPPER
+    chmod +x "$HOME/.local/bin/geni"
+
+    info "Installed from source at $GENI_HOME"
+}
+
+# ===========================================================================
+# Install from PyPI via pipx or pip
+# ===========================================================================
 ensure_pipx() {
     if command -v pipx >/dev/null 2>&1; then
         return 0
@@ -105,16 +162,22 @@ install_with_pip() {
 }
 
 # --- Main install logic ---
-if [ "$GENI_INSTALL" = "pip" ]; then
-    install_with_pip
-else
-    if ensure_pipx; then
-        install_with_pipx
-    else
-        warn "Could not set up pipx, falling back to pip --user"
+case "${GENI_INSTALL:-auto}" in
+    source)
+        install_from_source
+        ;;
+    pip)
         install_with_pip
-    fi
-fi
+        ;;
+    *)
+        if ensure_pipx; then
+            install_with_pipx
+        else
+            warn "Could not set up pipx, falling back to pip --user"
+            install_with_pip
+        fi
+        ;;
+esac
 
 # --- Verify ---
 printf "\n"
@@ -143,6 +206,10 @@ fi
 
 # --- Uninstall hint ---
 echo "  To uninstall:"
-echo "    pipx uninstall geni    # if installed with pipx"
-echo "    pip uninstall geni     # if installed with pip"
+if [ "${GENI_INSTALL:-auto}" = "source" ]; then
+    echo "    rm -rf $GENI_HOME ~/.local/bin/geni"
+else
+    echo "    pipx uninstall geni    # if installed with pipx"
+    echo "    pip uninstall geni     # if installed with pip"
+fi
 echo ""
