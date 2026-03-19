@@ -7,7 +7,7 @@ name = "geni"
 version = "0.1.0"
 description = "Python-powered infrastructure-as-code compiler. One YAML per environment, compiled into Terraform, Kubernetes, and Helm artifacts."
 readme = "README.md"
-license = {text = "MIT"}
+license = {file = "LICENSE"}
 requires-python = ">=3.10"
 authors = [
     {name = "Agath Emmanuel"},

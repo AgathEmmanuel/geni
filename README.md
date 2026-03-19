@@ -33,16 +33,32 @@ One YAML per environment, compiled into Terraform, Kubernetes, and Helm artifact
 
 ### Install
 
+One-line install (Linux / macOS):
+
 ```bash
-pip install geni
+curl -fsSL https://raw.githubusercontent.com/AgathEmmanuel/geni/main/install.sh | sh
 ```
 
-Or install from source:
+Or with pip / pipx:
+
+```bash
+pip install geni
+# or
+pipx install geni
+```
+
+Install from source:
 
 ```bash
 git clone https://github.com/AgathEmmanuel/geni.git
 cd geni
 pip install .
+```
+
+Install a specific version:
+
+```bash
+GENI_VERSION=0.1.0 curl -fsSL https://raw.githubusercontent.com/AgathEmmanuel/geni/main/install.sh | sh
 ```
 
 ### Initialize a project
