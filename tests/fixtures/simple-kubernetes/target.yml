@@ -1,0 +1,13 @@
+apiVersion: geni.io/v1alpha1
+kind: Target
+metadata:
+  name: simple-kubernetes
+spec:
+  data:
+    project: test-project
+  output: output
+  resources:
+    namespace:
+      template: kubernetes/namespace.yml
+      params:
+        namespace: monitoring

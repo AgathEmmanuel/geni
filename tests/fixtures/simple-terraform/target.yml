@@ -1,0 +1,14 @@
+apiVersion: geni.io/v1alpha1
+kind: Target
+metadata:
+  name: simple-terraform
+spec:
+  data:
+    project: test-project-123
+  output: output
+  resources:
+    backend:
+      template: terraform/backend.tf
+      params:
+        bucket_name: my-tf-state
+        tfstate_prefix: test

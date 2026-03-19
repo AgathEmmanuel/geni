@@ -1,0 +1,17 @@
+apiVersion: geni.io/v1alpha1
+kind: Target
+metadata:
+  name: python-template
+spec:
+  data:
+    project: test-project-456
+  output: output
+  resources:
+    services:
+      template: terraform/services.py
+      params:
+        project_name: ${{ data.project }}
+        services:
+          - compute.googleapis.com
+          - container.googleapis.com
+          - iam.googleapis.com

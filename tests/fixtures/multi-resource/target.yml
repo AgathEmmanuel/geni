@@ -1,0 +1,20 @@
+apiVersion: geni.io/v1alpha1
+kind: Target
+metadata:
+  name: multi-resource
+spec:
+  data:
+    project: multi-test
+    region: us-west1
+  output: output
+  resources:
+    backend:
+      template: terraform/backend.tf
+      params:
+        bucket_name: multi-state-bucket
+        tfstate_prefix: ${{ data.project }}
+    provider:
+      template: terraform/provider.tf
+      params:
+        project_name: ${{ data.project }}
+        region: ${{ data.region }}

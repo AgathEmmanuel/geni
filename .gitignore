@@ -1,6 +1,39 @@
-components/__pycache__/*
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
 
-compiled/terraform/*/.terraform
-compiled/terraform/*/.terraform.*
+# Geni
+compiled/
+.geni-staging-*/
+.geni-backup-*/
+.geni-lock.json
 
-#templates/tf_files/learn-terraform-provision-gke-cluster
+# Terraform
+.terraform/
+.terraform.*
+*.tfstate
+*.tfstate.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+BRAINSTORM.md
