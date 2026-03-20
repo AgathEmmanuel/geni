@@ -96,4 +96,4 @@ class IAM(Template):
             },
         }
 
-        return [TerraformJSON("iam.tf.json.tf.json", content)]
+        return [TerraformJSON("iam.tf.json", content)]

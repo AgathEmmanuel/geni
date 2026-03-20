@@ -150,4 +150,4 @@ echo "User data setup complete" | tee /var/log/user-data-complete.log
             },
         }
 
-        return TerraformJSON(filename="compute", content=resources)
+        return TerraformJSON(filename="compute.tf.json", content=resources)

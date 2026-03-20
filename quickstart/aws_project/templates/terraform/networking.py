@@ -275,4 +275,4 @@ class NetworkingTemplate(Template):
             }
         }
 
-        return TerraformJSON(filename="networking", content=resources)
+        return TerraformJSON(filename="networking.tf.json", content=resources)

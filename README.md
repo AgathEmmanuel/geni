@@ -4,34 +4,30 @@
 
 One YAML per environment, compiled into Terraform, Kubernetes, and Helm artifacts.
 
-<!-- Badges placeholder -->
 <!-- [![PyPI version](https://badge.fury.io/py/geni.svg)](https://pypi.org/project/geni/) -->
 <!-- [![CI](https://github.com/AgathEmmanuel/geni/actions/workflows/ci.yml/badge.svg)](https://github.com/AgathEmmanuel/geni/actions) -->
 <!-- [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) -->
 
 ---
 
-## Features
+## How It Works
 
-- Single declarative YAML target per environment drives all IaC generation
-- Versioned schema (`apiVersion: geni.io/v1alpha1`, `kind: Target`) with Pydantic validation
-- Python templates for complex logic -- loops, conditionals, API calls, multi-file output
-- Static templates with `${{ var }}` substitution for simple cases
-- Legacy `__var__` placeholder syntax supported for backward compatibility
-- Atomic compilation via staging directory swap (preserves `.terraform` state)
-- Incremental compilation with lock file (`.geni-lock.json`) -- only recompile what changed
-- Helm chart support for both local charts and remote registries
-- HCL-to-JSON conversion via `hcl2json`
-- Built-in template library for common Terraform and Kubernetes resources
-- Plugin architecture via Python `entry_points`
-- Click-based CLI: `compile`, `validate`, `diff`, `init`, `migrate`
-- pip-installable with no system dependencies beyond Python 3.10+
+```
+targets/dev.yml          geni compile         compiled/dev/
+targets/test.yml    ──────────────────►    compiled/test/
+targets/prod.yml                           compiled/prod/
+        │                                        │
+        ▼                                        ▼
+   One YAML per env                    Terraform .tf.json
+   defines all infra                   Kubernetes .yml
+                                       Helm charts
+```
+
+You write **one YAML target per environment**. Each target references **templates** (Python or static) that generate the actual infrastructure files. Change a parameter in the YAML, recompile, and all downstream artifacts update consistently.
 
 ---
 
-## Quick Start
-
-### Install
+## Install
 
 One-line install (Linux / macOS):
 
@@ -74,39 +70,218 @@ Install a specific version:
 GENI_VERSION=0.1.0 curl -fsSL https://raw.githubusercontent.com/AgathEmmanuel/geni/main/install.sh | sh
 ```
 
-### Initialize a project
+---
+
+## Quick Start
+
+### Option 1: Bootstrap a new project
 
 ```bash
+mkdir my-infra && cd my-infra
 geni init
 ```
 
-This creates:
+This creates a starter project:
 
-- `targets/example.yml` -- an example target file
-- `templates/terraform/backend.tf` -- an example static template
-- `.geni.yml` -- project configuration
+```
+my-infra/
+├── .geni.yml                  # project config
+├── targets/
+│   └── example.yml            # example target
+└── templates/
+    └── terraform/
+        └── backend.tf         # example static template
+```
 
-### Compile
+Compile and inspect:
 
 ```bash
-# Compile a specific target
 geni -t example
+ls compiled/terraform/example/
+```
 
-# Compile all targets
+### Option 2: Clone this repo and use the included targets
+
+This repo ships with three ready-to-use GCP targets (dev, test, prod) demonstrating a full infrastructure stack:
+
+```bash
+git clone https://github.com/AgathEmmanuel/geni.git
+cd geni
+pip install .
+
+# See what's available
+ls targets/
+# dev.yml  test.yml  prod.yml
+
+# Compile the dev environment
+geni -t dev
+
+# Compile all environments
 geni
+```
 
-# Preview without writing files
-geni -t example --dry-run
+After compilation, inspect the output:
 
-# Explicit compile subcommand also works
-geni compile -t example
+```bash
+ls compiled/dev/
+# backend.tf          networking.tf.json    compute.tf.json
+# provider.tf         iam.tf.json           kubernetes.tf.json
+# storage.tf.json     00-namespace.yml      01-configmap.yml
+# 02-serviceaccount.yml  03-deployment.yml  04-service.yml
 ```
 
 ---
 
-## Target YAML Format
+## Working with Targets
 
-Targets use the `geni.io/v1alpha1` schema. Each target file lives in the `targets/` directory and defines one environment's complete infrastructure.
+### Understanding the included targets
+
+The repo includes three environment targets for GCP, each producing Terraform + Kubernetes artifacts:
+
+| Target | Environment | Machine Type | GKE Cluster | Buckets |
+|--------|-------------|-------------|-------------|---------|
+| `dev.yml` | dev | e2-medium | dev-cluster | app-assets, app-uploads |
+| `test.yml` | test | e2-medium | test-cluster | app-assets, app-uploads, test-artifacts |
+| `prod.yml` | prod | e2-standard-4 | prod-cluster | app-assets, app-uploads, app-backups |
+
+Each target compiles into 12 files:
+- **Terraform**: backend, provider, networking (VPC/subnets/firewall/NAT), IAM (service accounts), storage (GCS buckets), compute (bastion instance), kubernetes (GKE Autopilot)
+- **Kubernetes**: namespace, configmap, serviceaccount, deployment, service
+
+### Customizing a target for your project
+
+1. Edit `targets/dev.yml` and update `spec.data` with your values:
+
+```yaml
+spec:
+  data:
+    project: your-gcp-project-id    # <-- your GCP project
+    region: us-central1
+    environment: dev
+    cluster_name: dev-cluster
+    machine_type: e2-medium
+    app_name: my-service            # <-- your service name
+    app_image: gcr.io/your-project/my-service:latest
+```
+
+2. Compile:
+
+```bash
+geni -t dev
+```
+
+3. Deploy:
+
+```bash
+cd compiled/dev
+terraform init && terraform plan
+terraform apply
+
+# Then deploy K8s manifests
+kubectl apply -f 00-namespace.yml -f 01-configmap.yml \
+  -f 02-serviceaccount.yml -f 03-deployment.yml -f 04-service.yml
+```
+
+### Creating a new target
+
+Copy an existing target and modify it:
+
+```bash
+cp targets/dev.yml targets/staging.yml
+```
+
+Edit `targets/staging.yml` -- update the name, labels, data values, and output path:
+
+```yaml
+apiVersion: geni.io/v1alpha1
+kind: Target
+metadata:
+  name: staging
+  labels:
+    environment: staging
+spec:
+  data:
+    project: my-gcp-project
+    region: us-east1              # different region
+    environment: staging
+    cluster_name: staging-cluster
+    machine_type: e2-standard-2   # bigger than dev
+    # ... rest of data
+  output: compiled/staging        # separate output dir
+  resources:
+    # same resources as dev, or add/remove as needed
+```
+
+Compile:
+
+```bash
+geni -t staging
+```
+
+### Adding a new resource to a target
+
+To add infrastructure, create a template and reference it from the target.
+
+**Example: adding a Cloud SQL database**
+
+1. Create `templates/terraform/database.py`:
+
+```python
+from geni.template import Template, TerraformJSON, RenderContext
+
+class DatabaseTemplate(Template):
+    def render(self, context):
+        p = context.params
+        return TerraformJSON("database.tf.json", {
+            "resource": {
+                "google_sql_database_instance": {
+                    p["instance_name"]: {
+                        "name": p["instance_name"],
+                        "project": p["project"],
+                        "region": p["region"],
+                        "database_version": "POSTGRES_15",
+                        "deletion_protection": False,
+                        "settings": {
+                            "tier": p.get("tier", "db-custom-2-7680"),
+                        },
+                    }
+                },
+                "google_sql_database": {
+                    p["db_name"]: {
+                        "name": p["db_name"],
+                        "instance": f"${{google_sql_database_instance.{p['instance_name']}.name}}",
+                    }
+                },
+            }
+        })
+```
+
+2. Add it to `targets/dev.yml` under `resources`:
+
+```yaml
+    database:
+      template: terraform/database.py
+      params:
+        project: ${{ data.project }}
+        region: ${{ data.region }}
+        instance_name: ${{ data.db_instance_name }}
+        db_name: ${{ data.db_name }}
+```
+
+3. Compile:
+
+```bash
+geni -t dev
+# [+] Wrote 13 files for target 'dev'
+```
+
+### Removing a resource
+
+Delete the resource block from the target YAML and recompile. The compiled output is fully regenerated each time.
+
+---
+
+## Target YAML Format
 
 ### Schema
 
@@ -114,14 +289,14 @@ Targets use the `geni.io/v1alpha1` schema. Each target file lives in the `target
 apiVersion: geni.io/v1alpha1
 kind: Target
 metadata:
-  name: <string>           # unique name for this target
-  labels:                   # optional key-value labels
+  name: <string>
+  labels:
     environment: <string>
 spec:
   data:                     # global variables available to all resources
     key: value
   output: <string>          # output directory for compiled artifacts
-  resources:                # map of resource name -> resource definition
+  resources:
     <resource-name>:
       template: <path>      # path to template (relative to templates_dir)
       params:               # parameters passed to the template
@@ -129,68 +304,6 @@ spec:
 ```
 
 Each resource must specify exactly one source: `template`, `chart`, or `generator`.
-
-### Complete Example
-
-```yaml
-apiVersion: geni.io/v1alpha1
-kind: Target
-metadata:
-  name: production
-  labels:
-    environment: prod
-    team: platform
-spec:
-  data:
-    project: my-project
-    region: us-central1
-    cluster_name: prod-cluster
-    namespace: production
-
-  output: compiled/production
-
-  resources:
-    # --- Terraform resources (static template) ---
-    backend:
-      template: terraform/backend.tf
-      params:
-        bucket_name: my-project-tfstate
-        tfstate_prefix: prod
-
-    # --- Terraform resources (Python template) ---
-    buckets:
-      template: terraform/buckets.py
-      params:
-        buckets:
-          - name: my-project-data
-            location: US
-          - name: my-project-logs
-            location: US
-
-    # --- Kubernetes resource ---
-    namespace:
-      template: kubernetes/namespace.yml
-      params:
-        namespace: ${{ data.namespace }}
-
-    # --- Helm chart (local) ---
-    prometheus:
-      chart:
-        path: charts/prometheus
-      values: values/prometheus-values.yml
-      params:
-        retention: 30d
-        storageSize: 50Gi
-
-    # --- Helm chart (registry) ---
-    cert-manager:
-      chart:
-        repo: https://charts.jetstack.io
-        name: cert-manager
-        version: 1.14.0
-      params:
-        installCRDs: true
-```
 
 ### Data References
 
@@ -204,22 +317,19 @@ spec:
     provider:
       template: terraform/provider.tf
       params:
-        region: ${{ data.region }}
+        region: ${{ data.region }}    # resolves to "us-central1"
 ```
 
 ---
 
 ## Template Types
 
-geni supports two types of templates: static templates and Python templates.
-
 ### Static Templates
 
-Static templates are plain text files (`.tf`, `.yml`, `.json`, etc.) with placeholder substitution. Placeholders are replaced at compile time with values from `params` and `data`.
-
-**New syntax** -- `${{ }}`:
+Plain text files (`.tf`, `.yml`, `.json`) with `${{ var }}` placeholder substitution:
 
 ```hcl
+# templates/terraform/backend.tf
 terraform {
   backend "gcs" {
     bucket = "${{ bucket_name }}"
@@ -228,176 +338,158 @@ terraform {
 }
 ```
 
-**Legacy syntax** -- `__var__`:
-
-```yaml
-metadata:
-  name: __project__-namespace
-  namespace: __namespace__
-```
-
-Both syntaxes are processed during compilation. The `${{ }}` syntax is preferred for new templates.
-
 ### Python Templates
 
-Python templates subclass `geni.template.Template` and implement a `render()` method. They receive a `RenderContext` containing `params`, `data`, references to previously compiled `resources`, and directory paths.
+Python templates subclass `geni.template.Template` and implement `render()`. They receive a `RenderContext` with `params`, `data`, and directory paths, and return `GeneratedFile` instances.
 
 ```python
-from geni.template import Template, GeneratedFile, RenderContext
+from geni.template import Template, TerraformJSON, KubernetesManifest, RenderContext
 
 class MyTemplate(Template):
     def render(self, context: RenderContext) -> GeneratedFile | list[GeneratedFile]:
-        # Build and return GeneratedFile instances
-        ...
+        # Full Python: loops, conditionals, API calls, multi-file output
+        return TerraformJSON("output.tf.json", {"resource": {...}})
 ```
 
 Available output types:
 
-| Class                | File Type   | Content Type       |
-|----------------------|-------------|--------------------|
-| `TerraformJSON`      | `.tf.json`  | `dict`             |
-| `TerraformHCL`       | `.tf`       | `str`              |
-| `KubernetesManifest` | `.yml`      | `dict` or `list`   |
-| `RawFile`            | any         | `str`              |
+| Class | File Type | Content Type |
+|---|---|---|
+| `TerraformJSON` | `.tf.json` | `dict` |
+| `TerraformHCL` | `.tf` | `str` |
+| `KubernetesManifest` | `.yml` | `dict` or `list` |
+| `RawFile` | any | `str` |
 
-Alternatively, a Python template can define a module-level `render(context)` function instead of a class.
+### Python Template Example -- Multiple Files
 
----
-
-## Python Template Examples
-
-### Simple Example -- Single File Output
-
-A template that generates a Kubernetes Namespace manifest:
+A template that generates one Terraform file per GCS bucket:
 
 ```python
-# templates/kubernetes/namespace.py
+# templates/terraform/storage.py
+from geni.template import Template, TerraformJSON, RenderContext
 
-from geni.template import Template, KubernetesManifest, GeneratedFile, RenderContext
+class StorageTemplate(Template):
+    def render(self, context):
+        params = context.params
+        bucket_resources = {}
 
-
-class Namespace(Template):
-    """Generates a Kubernetes Namespace manifest."""
-
-    def render(self, context: RenderContext) -> GeneratedFile:
-        manifest = {
-            "apiVersion": "v1",
-            "kind": "Namespace",
-            "metadata": {
-                "name": context.params["namespace"],
-            },
-            "spec": {},
-        }
-
-        labels = context.params.get("labels")
-        if labels:
-            manifest["metadata"]["labels"] = labels
-
-        return KubernetesManifest(f"{self.name}.yml", manifest)
-```
-
-### Complex Example -- Multiple Files with Loops and Conditionals
-
-A template that generates multiple GCS bucket resources with conditional configuration:
-
-```python
-# templates/terraform/buckets.py
-
-from geni.template import Template, TerraformJSON, GeneratedFile, RenderContext
-
-
-class MultiBucket(Template):
-    """Generates Terraform resources for multiple GCS buckets.
-
-    Params:
-        buckets: list of dicts with 'name', 'location', 'versioning' (optional)
-        lifecycle_days: int, optional days for lifecycle rule
-        project: str
-    """
-
-    def render(self, context: RenderContext) -> list[GeneratedFile]:
-        files = []
-        project = context.params.get("project", context.data.get("project"))
-        lifecycle_days = context.params.get("lifecycle_days")
-
-        for bucket in context.params["buckets"]:
-            name = bucket["name"]
-            safe_name = name.replace("-", "_")
-
-            resource_body = {
+        for bucket in params["buckets"]:
+            name = f"{params['project']}-{params['environment']}-{bucket['name']}"
+            resource_name = bucket["name"].replace("-", "_")
+            bucket_resources[resource_name] = {
                 "name": name,
-                "location": bucket.get("location", "US"),
-                "project": project,
+                "project": params["project"],
+                "location": params["region"],
                 "uniform_bucket_level_access": True,
-                "force_destroy": False,
+                "versioning": {"enabled": bucket.get("versioning", False)},
             }
 
-            # Conditional: add versioning only if requested
-            if bucket.get("versioning", True):
-                resource_body["versioning"] = [{"enabled": True}]
-
-            # Conditional: add lifecycle rule if days specified
-            if lifecycle_days:
-                resource_body["lifecycle_rule"] = [{
-                    "action": [{"type": "Delete"}],
-                    "condition": [{"age": lifecycle_days}],
-                }]
-
-            tf_json = {
-                "resource": [{
-                    "google_storage_bucket": [{
-                        safe_name: resource_body,
-                    }]
-                }]
-            }
-
-            files.append(TerraformJSON(f"{safe_name}.tf.json", tf_json))
-
-        return files
+        return TerraformJSON("storage.tf.json", {
+            "resource": {"google_storage_bucket": bucket_resources}
+        })
 ```
 
 Target usage:
 
 ```yaml
-resources:
-  storage:
-    template: terraform/buckets.py
-    params:
-      project: ${{ data.project }}
-      lifecycle_days: 90
-      buckets:
-        - name: app-data-prod
-          location: US
-          versioning: true
-        - name: app-logs-prod
-          location: US
-          versioning: false
+storage:
+  template: terraform/storage.py
+  params:
+    project: ${{ data.project }}
+    region: ${{ data.region }}
+    environment: ${{ data.environment }}
+    buckets:
+      - name: app-assets
+        versioning: true
+      - name: app-logs
+        versioning: false
 ```
-
-This produces two files: `app_data_prod.tf.json` and `app_logs_prod.tf.json`.
 
 ---
 
-## Built-in Templates
+## Common Workflows
 
-geni ships with a built-in template library under `geni.builtins`. These can be referenced directly or used as examples for custom templates.
+### Validate before compiling
 
-### Terraform (`geni.builtins.terraform`)
+```bash
+geni validate -t dev          # validate a single target
+geni validate                 # validate all targets
+```
 
-| Template   | Description                          |
-|------------|--------------------------------------|
-| `backend`  | Terraform backend configuration      |
-| `bucket`   | Google Cloud Storage bucket(s)       |
-| `gke_autopilot` | GKE Autopilot cluster           |
-| `provider` | Terraform provider configuration     |
-| `services` | Google Cloud API service enablement  |
+### Preview changes without writing
 
-### Kubernetes (`geni.builtins.kubernetes`)
+```bash
+geni -t dev --dry-run
+# [+] Would write 12 files for target 'dev'
+```
 
-| Template    | Description                        |
-|-------------|------------------------------------|
-| `deployment`| Kubernetes Deployment manifest     |
-| `namespace` | Kubernetes Namespace manifest      |
+### See what changed
+
+```bash
+geni diff -t dev
+```
+
+### Force recompile (skip incremental cache)
+
+```bash
+geni -t dev --force
+```
+
+### Compile all environments at once
+
+```bash
+geni
+# [+] Wrote 12 files for target 'dev'
+# [+] Wrote 12 files for target 'test'
+# [+] Wrote 12 files for target 'prod'
+```
+
+### Deploy compiled output
+
+```bash
+# Terraform
+cd compiled/dev
+terraform init
+terraform plan -out=tfplan
+terraform apply tfplan
+
+# Kubernetes (after cluster is up)
+kubectl apply -f compiled/dev/00-namespace.yml
+kubectl apply -f compiled/dev/01-configmap.yml
+kubectl apply -f compiled/dev/02-serviceaccount.yml
+kubectl apply -f compiled/dev/03-deployment.yml
+kubectl apply -f compiled/dev/04-service.yml
+```
+
+---
+
+## Incremental Compilation
+
+geni tracks state in `.geni-lock.json` inside each target's output directory. On subsequent runs, if the target YAML hasn't changed, compilation is skipped:
+
+```
+INFO Target 'dev' is up to date; skipping. Use --force to recompile.
+```
+
+Use `--force` to bypass the cache:
+
+```bash
+geni -t dev --force
+```
+
+---
+
+## Cloud Quickstarts
+
+The `quickstart/` directory contains complete, ready-to-deploy infrastructure projects for each major cloud:
+
+| Directory | Cloud | What's Included |
+|-----------|-------|-----------------|
+| `quickstart/gcp_project/` | Google Cloud | VPC, GKE Autopilot, Cloud SQL, GCS, GCE, IAM |
+| `quickstart/aws_project/` | AWS | VPC, EKS, RDS, S3, EC2, IAM/IRSA |
+| `quickstart/azure_project/` | Azure | VNet, AKS, PostgreSQL Flexible, Storage, VM |
+
+Each has its own `QUICKSTART.md` with step-by-step instructions from install to deploy to cleanup.
 
 ---
 
@@ -407,170 +499,45 @@ geni ships with a built-in template library under `geni.builtins`. These can be 
 geni [OPTIONS] COMMAND [ARGS]
 ```
 
+When invoked without a subcommand, geni compiles directly: `geni -t dev` is equivalent to `geni compile -t dev`.
+
 **Global options:**
 
-| Flag             | Description                                   |
-|------------------|-----------------------------------------------|
-| `--version`      | Show version and exit                         |
-| `-v, --verbose`  | Increase verbosity (`-v` info, `-vv` debug)   |
-| `-t, --target`   | Target name to compile (without `.yml`)       |
-| `--dry-run`      | Show what would be compiled without writing   |
-| `--force`        | Force recompilation even if unchanged         |
+| Flag | Description |
+|------|-------------|
+| `--version` | Show version and exit |
+| `-v, --verbose` | Increase verbosity (`-v` info, `-vv` debug) |
+| `-t, --target` | Target name to compile (without `.yml`) |
+| `--dry-run` | Show what would be compiled without writing |
+| `--force` | Force recompilation even if unchanged |
 
-When invoked without a subcommand, geni compiles directly: `geni -t prod` is equivalent to `geni compile -t prod`.
+**Commands:**
 
-### geni compile
-
-Compile target YAML into infrastructure artifacts.
-
-```bash
-geni compile [OPTIONS]
-```
-
-| Flag              | Description                                    |
-|-------------------|------------------------------------------------|
-| `-t, --target`    | Target name to compile (without `.yml`)        |
-| `--all`           | Compile all targets in the targets directory   |
-| `--dry-run`       | Show what would be compiled without writing    |
-| `--force`         | Force recompilation even if unchanged          |
-
-When no flag is specified, all targets are compiled by default.
-
-### geni validate
-
-Validate target YAML files against the schema.
-
-```bash
-geni validate [OPTIONS]
-```
-
-| Flag              | Description                                    |
-|-------------------|------------------------------------------------|
-| `-t, --target`    | Target name to validate                        |
-| `--all`           | Validate all targets                           |
-
-### geni diff
-
-Show what would change if a target were recompiled.
-
-```bash
-geni diff -t <target>
-```
-
-| Flag              | Description                                    |
-|-------------------|------------------------------------------------|
-| `-t, --target`    | (Required) Target name to diff                 |
-
-### geni init
-
-Initialize a new geni project with example files.
-
-```bash
-geni init [OPTIONS]
-```
-
-| Flag              | Description                                    |
-|-------------------|------------------------------------------------|
-| `--dir`           | Directory to initialize (default: `.`)         |
-
-### geni migrate
-
-Migrate legacy format files to the current schema.
-
-```bash
-geni migrate [OPTIONS]
-```
-
-| Flag              | Description                                    |
-|-------------------|------------------------------------------------|
-| `--targets`       | Migrate target files to `v1alpha1` format      |
-
----
-
-## Project Structure
-
-```
-geni/
-├── src/
-│   └── geni/
-│       ├── __init__.py            # Package version
-│       ├── cli.py                 # Click CLI entry point
-│       ├── compiler.py            # Main compilation orchestrator
-│       ├── config.py              # GeniConfig loader (.geni.yml)
-│       ├── engine.py              # Template loading and rendering engine
-│       ├── schema.py              # Pydantic models (TargetManifest, ResourceDef)
-│       ├── template.py            # Base Template class and GeneratedFile types
-│       ├── writers.py             # File output writers
-│       ├── state.py               # Lock file and atomic compilation
-│       ├── compat.py              # Legacy format detection and migration
-│       ├── errors.py              # Custom exception hierarchy
-│       ├── filters.py             # String sanitization utilities
-│       ├── builtins/
-│       │   ├── terraform/
-│       │   │   ├── backend.py
-│       │   │   ├── bucket.py
-│       │   │   ├── gke_autopilot.py
-│       │   │   ├── provider.py
-│       │   │   └── services.py
-│       │   └── kubernetes/
-│       │       ├── deployment.py
-│       │       └── namespace.py
-│       └── integrations/
-│           ├── helm.py            # Helm chart rendering
-│           └── hcl.py             # HCL to JSON conversion
-├── tests/
-│   ├── conftest.py
-│   ├── test_cli.py
-│   ├── test_compat.py
-│   ├── test_compiler.py
-│   ├── test_engine.py
-│   ├── test_schema.py
-│   └── test_state.py
-├── pyproject.toml
-├── .geni.yml
-└── README.md
-```
-
----
-
-## Configuration
-
-Project configuration is stored in `.geni.yml` at the project root.
-
-```yaml
-templates_dir: templates       # directory containing template files
-targets_dir: targets           # directory containing target YAML files
-compiled_dir: compiled         # base directory for compiled output
-```
-
-All paths are relative to the project root. If `.geni.yml` does not exist, geni uses the defaults shown above.
+| Command | Description |
+|---------|-------------|
+| `geni compile` | Compile targets (also the default action) |
+| `geni validate` | Validate target YAML against the schema |
+| `geni diff` | Show what would change if recompiled |
+| `geni init` | Scaffold a new geni project |
+| `geni migrate` | Migrate legacy format targets to v1alpha1 |
 
 ---
 
 ## Helm Integration
 
-geni can render Helm charts as part of the compilation pipeline, supporting both local charts and remote registries.
-
-### Local Charts
-
-Reference a chart by its filesystem path:
+geni can render Helm charts as part of compilation:
 
 ```yaml
 resources:
-  kube-state-metrics:
+  # Local chart
+  prometheus:
     chart:
-      path: charts/kube-state-metrics
-    values: values/kube-state-metrics-values.yml
+      path: charts/prometheus
+    values: values/prometheus-values.yml
     params:
-      replicas: 2
-```
+      retention: 30d
 
-### Registry Charts
-
-Pull a chart from a Helm repository:
-
-```yaml
-resources:
+  # Registry chart
   cert-manager:
     chart:
       repo: https://charts.jetstack.io
@@ -580,107 +547,77 @@ resources:
       installCRDs: true
 ```
 
-### Values Files
-
-Values files support the same `${{ }}` substitution as other templates. Parameters specified in `params` are merged into the rendered values, with `params` taking precedence.
+Values files support `${{ }}` substitution. `params` are merged into values with `params` taking precedence.
 
 ---
 
-## Incremental Compilation
+## Configuration
 
-geni tracks compilation state in a `.geni-lock.json` file stored in each target's output directory. The lock file records:
+Project configuration lives in `.geni.yml` at the project root:
 
-- The SHA256 hash of the target YAML input
-- The SHA256 hash of each generated output file
-- A timestamp of the last successful compilation
-
-On subsequent runs, geni compares the current input hash against the lock file. If unchanged, compilation is skipped:
-
-```
-INFO Target 'production' is up to date (hash a3f8c1d2b9e4...); skipping. Use --force to recompile.
+```yaml
+templates_dir: templates       # where templates live
+targets_dir: targets           # where target YAMLs live
+compiled_dir: compiled         # base output directory
 ```
 
-To force recompilation regardless of state:
-
-```bash
-geni compile -t production --force
-```
-
-The lock file format:
-
-```json
-{
-  "version": 1,
-  "compiled_at": "2026-03-19T10:30:00+00:00",
-  "targets": {
-    "production": {
-      "input_hash": "a3f8c1d2b9e4...",
-      "outputs": {
-        "backend.tf.json": "sha256...",
-        "buckets.tf.json": "sha256..."
-      }
-    }
-  }
-}
-```
+All paths are relative to the project root. Defaults are used if `.geni.yml` doesn't exist.
 
 ---
 
-## Legacy Format Migration
+## Project Structure
 
-geni supports the legacy target format for backward compatibility. Legacy targets lack an `apiVersion` field and use older key names:
-
-| Legacy Key     | Current Key    |
-|----------------|----------------|
-| `compiled`     | `spec.output`  |
-| `data`         | `spec.data`    |
-| `parameter`    | `params`       |
-| `component`    | `template`     |
-| `value`        | `values`       |
-
-Legacy targets are automatically detected and upgraded in memory at compile time. To permanently migrate files on disk:
-
-```bash
-geni migrate --targets
 ```
-
-This rewrites each legacy target file in place, converting it to the `geni.io/v1alpha1` format.
-
-Legacy `__var__` placeholder syntax in templates continues to work alongside the new `${{ var }}` syntax. No migration is required for template files.
+geni/
+├── src/geni/                  # core package
+│   ├── cli.py                 # Click CLI entry point
+│   ├── compiler.py            # compilation orchestrator
+│   ├── engine.py              # template loading and rendering
+│   ├── schema.py              # Pydantic v2 target validation
+│   ├── template.py            # Template base class + GeneratedFile types
+│   ├── writers.py             # file serialization
+│   ├── state.py               # lock file + atomic compilation
+│   ├── config.py              # .geni.yml loader
+│   ├── compat.py              # legacy format migration
+│   ├── builtins/              # built-in template library
+│   └── integrations/          # helm, hcl2json
+├── templates/                 # project templates
+│   ├── terraform/             # backend.tf, provider.tf, networking.py, ...
+│   └── kubernetes/            # sample_app.py
+├── targets/                   # environment targets
+│   ├── dev.yml
+│   ├── test.yml
+│   └── prod.yml
+├── tests/                     # test suite (59 tests)
+├── quickstart/                # cloud-specific quickstart projects
+│   ├── gcp_project/
+│   ├── aws_project/
+│   └── azure_project/
+├── pyproject.toml
+├── install.sh
+└── ARCHITECTURE.md
+```
 
 ---
 
 ## Development
 
-### Install for development
-
 ```bash
 git clone https://github.com/AgathEmmanuel/geni.git
 cd geni
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-```
 
-### Run tests
-
-```bash
+# Run tests
 pytest
-```
 
-Tests requiring external tools (Helm, hcl2json) are marked with `@pytest.mark.integration` and can be excluded:
-
-```bash
+# Skip integration tests (require helm, hcl2json)
 pytest -m "not integration"
-```
 
-### Linting
-
-```bash
+# Lint
 ruff check src/ tests/
-```
 
-### Type checking
-
-```bash
+# Type check
 mypy src/geni/
 ```
 
@@ -688,7 +625,7 @@ mypy src/geni/
 
 ## Architecture
 
-For a detailed overview of the compilation pipeline, module responsibilities, and extension points, see [ARCHITECTURE.md](ARCHITECTURE.md).
+See [ARCHITECTURE.md](ARCHITECTURE.md) for compilation pipeline details, module design, template system internals, and mermaid diagrams.
 
 ---
 

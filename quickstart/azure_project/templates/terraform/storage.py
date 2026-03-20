@@ -79,4 +79,4 @@ class Storage(Template):
             },
         }
 
-        return [TerraformJSON("storage.tf.json.tf.json", content)]
+        return [TerraformJSON("storage.tf.json", content)]

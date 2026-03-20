@@ -169,4 +169,4 @@ class SampleApp(Template):
 
         manifests = [namespace, configmap, service_account, deployment, service]
 
-        return [KubernetesManifest("sample-app.yml.yml", manifests)]
+        return [KubernetesManifest("sample-app.yml", manifests)]

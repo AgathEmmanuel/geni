@@ -184,4 +184,4 @@ class SampleAppTemplate(Template):
             service,
         ]
 
-        return KubernetesManifest(filename="sample-app", content=manifests)
+        return KubernetesManifest(filename="sample-app.yml", content=manifests)

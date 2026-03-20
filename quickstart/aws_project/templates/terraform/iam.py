@@ -174,4 +174,4 @@ class IAMTemplate(Template):
             }
         }
 
-        return TerraformJSON(filename="iam", content=resources)
+        return TerraformJSON(filename="iam.tf.json", content=resources)

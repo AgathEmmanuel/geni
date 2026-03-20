@@ -284,4 +284,4 @@ class Networking(Template):
             },
         }
 
-        return [TerraformJSON("networking.tf.json.tf.json", content)]
+        return [TerraformJSON("networking.tf.json", content)]

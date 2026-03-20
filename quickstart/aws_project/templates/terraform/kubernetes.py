@@ -132,4 +132,4 @@ class KubernetesTemplate(Template):
             },
         }
 
-        return TerraformJSON(filename="kubernetes", content=resources)
+        return TerraformJSON(filename="kubernetes.tf.json", content=resources)

@@ -95,4 +95,4 @@ class StorageTemplate(Template):
             }
         }
 
-        return TerraformJSON(filename="storage", content=resources)
+        return TerraformJSON(filename="storage.tf.json", content=resources)

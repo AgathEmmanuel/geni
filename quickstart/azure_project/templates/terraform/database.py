@@ -107,4 +107,4 @@ class Database(Template):
             },
         }
 
-        return [TerraformJSON("database.tf.json.tf.json", content)]
+        return [TerraformJSON("database.tf.json", content)]
