@@ -79,4 +79,4 @@ class OutputsTemplate(Template):
             }
         }
 
-        return TerraformJSON(name="outputs", content=outputs)
+        return TerraformJSON("outputs.tf.json", content=outputs)

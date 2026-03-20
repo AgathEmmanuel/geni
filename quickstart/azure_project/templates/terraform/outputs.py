@@ -109,4 +109,4 @@ class Outputs(Template):
             },
         }
 
-        return [TerraformJSON("outputs.tf.json", content)]
+        return [TerraformJSON("outputs.tf.json.tf.json", content)]

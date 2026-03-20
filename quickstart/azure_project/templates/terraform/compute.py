@@ -130,4 +130,4 @@ apt-get install -y postgresql-client
             },
         }
 
-        return [TerraformJSON("compute.tf.json", content)]
+        return [TerraformJSON("compute.tf.json.tf.json", content)]

@@ -137,4 +137,4 @@ class DatabaseTemplate(Template):
             }
         }
 
-        return TerraformJSON(name="database", content=resources)
+        return TerraformJSON("database.tf.json", content=resources)

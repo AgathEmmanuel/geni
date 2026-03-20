@@ -94,4 +94,4 @@ class Kubernetes(Template):
             },
         }
 
-        return [TerraformJSON("kubernetes.tf.json", content)]
+        return [TerraformJSON("kubernetes.tf.json.tf.json", content)]
