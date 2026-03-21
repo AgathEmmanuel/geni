@@ -1,6 +1,6 @@
 # GCP Quickstart: Full Infrastructure with geni
 
-This quickstart deploys a complete GCP development environment using geni to compile YAML targets into Terraform and Kubernetes artifacts. The infrastructure includes:
+This quickstart deploys a complete GCP development environment using geni to generate Terraform and Kubernetes artifacts from YAML targets into Terraform and Kubernetes artifacts. The infrastructure includes:
 
 - **Networking**: VPC, subnets with GKE secondary ranges, firewall rules, Cloud NAT
 - **IAM**: Service accounts with least-privilege bindings, Workload Identity
@@ -147,18 +147,18 @@ Also update the tfstate bucket name in the `backend` resource params:
         tfstate_prefix: dev
 ```
 
-## 5. Compile with geni
+## 5. Generate with geni
 
-From the `gcp_project/` directory, run geni to compile the dev target:
+From the `gcp_project/` directory, run geni to generate the dev target:
 
 ```bash
-geni compile -t dev
+geni generate -t dev
 ```
 
-This reads `targets/dev.yml`, processes all referenced templates, and writes the compiled output to `compiled/dev/`. After compilation, you will see:
+This reads `targets/dev.yml`, processes all referenced templates, and writes the output to `generated/dev/`. After generation, you will see:
 
 ```
-compiled/dev/
+generated/dev/
 ├── terraform/
 │   ├── backend.tf          # GCS backend configuration
 │   ├── provider.tf         # Google provider configuration
@@ -177,10 +177,10 @@ compiled/dev/
     └── 04-service.yml
 ```
 
-You can inspect the compiled Terraform JSON to verify correctness:
+You can inspect the generated Terraform JSON to verify correctness:
 
 ```bash
-cat compiled/dev/terraform/networking.tf.json | jq .
+cat generated/dev/terraform/networking.tf.json | jq .
 ```
 
 ## 6. Deploy Infrastructure
@@ -188,7 +188,7 @@ cat compiled/dev/terraform/networking.tf.json | jq .
 ### Initialize Terraform
 
 ```bash
-cd compiled/dev/terraform
+cd generated/dev/terraform
 
 terraform init
 ```
@@ -255,10 +255,10 @@ kubectl get namespaces
 
 ## 8. Deploy the Sample App
 
-Apply the compiled Kubernetes manifests:
+Apply the generated Kubernetes manifests:
 
 ```bash
-cd ../../../compiled/dev/kubernetes
+cd ../../../generated/dev/kubernetes
 
 # Apply all manifests in order
 kubectl apply -f 00-namespace.yml
@@ -326,7 +326,7 @@ First, get the database connection name:
 
 ```bash
 # From your local machine
-terraform -chdir=compiled/dev/terraform output database_connection_name
+terraform -chdir=generated/dev/terraform output database_connection_name
 ```
 
 Then on the bastion host:
@@ -336,7 +336,7 @@ Then on the bastion host:
 cloud-sql-proxy $PROJECT_ID:us-central1:dev-db --port=5432 &
 
 # Connect with psql (install if needed: apt-get install -y postgresql-client)
-PGPASSWORD=$(terraform -chdir=compiled/dev/terraform output -raw database_password) \
+PGPASSWORD=$(terraform -chdir=generated/dev/terraform output -raw database_password) \
     psql -h 127.0.0.1 -U appuser -d appdb
 ```
 
@@ -356,13 +356,13 @@ spec:
     machine_type: e2-standard-4    # Was e2-medium
 ```
 
-Then recompile and apply:
+Then regenerate and apply:
 
 ```bash
 cd quickstart/gcp_project
-geni compile -t dev
+geni generate -t dev
 
-cd compiled/dev/terraform
+cd generated/dev/terraform
 terraform plan -out=tfplan
 terraform apply tfplan
 ```
@@ -405,11 +405,11 @@ class RedisTemplate(Template):
         network: ${{ data.network_name }}
 ```
 
-3. Recompile and apply:
+3. Regenerate and apply:
 
 ```bash
-geni compile -t dev
-cd compiled/dev/terraform
+geni generate -t dev
+cd generated/dev/terraform
 terraform plan -out=tfplan
 terraform apply tfplan
 ```
@@ -422,13 +422,13 @@ To create a staging or production environment, copy `targets/dev.yml` to a new f
 cp targets/dev.yml targets/staging.yml
 ```
 
-Edit `targets/staging.yml` and update the values (project, environment label, resource names, machine types, etc.). Then compile the new target:
+Edit `targets/staging.yml` and update the values (project, environment label, resource names, machine types, etc.). Then generate the new target:
 
 ```bash
-geni compile -t staging
+geni generate -t staging
 ```
 
-The compiled output will be written to `compiled/staging/`.
+The generated output will be written to `generated/staging/`.
 
 ## 12. Cleanup
 
@@ -437,7 +437,7 @@ The compiled output will be written to `compiled/staging/`.
 Remove all GCP resources created by Terraform:
 
 ```bash
-cd compiled/dev/terraform
+cd generated/dev/terraform
 
 # First remove Kubernetes resources
 kubectl delete -f ../kubernetes/ --ignore-not-found
@@ -463,7 +463,7 @@ gsutil rb gs://${PROJECT_ID}-tfstate
 ### Clean Up Compiled Artifacts
 
 ```bash
-rm -rf compiled/
+rm -rf generated/
 ```
 
 ## 13. Troubleshooting
@@ -535,16 +535,16 @@ If a previous Terraform run was interrupted:
 terraform force-unlock LOCK_ID
 ```
 
-### geni Compilation Errors
+### geni Generation Errors
 
-If `geni compile` fails:
+If `geni generate` fails:
 
 ```bash
 # Validate the target YAML
 geni validate -t dev
 
 # Run with verbose output
-geni compile -t dev --verbose
+geni generate -t dev --verbose
 ```
 
 Common issues:

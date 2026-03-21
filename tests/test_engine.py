@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from geni.engine import TemplateEngine
-from geni.template import RenderContext, GeneratedFile, Template, TerraformJSON
+from geni.template import RenderContext, GeneratedFile, Template, TerraformJSON, TerraformHCL
 from geni.errors import TemplateError
 
 
@@ -109,25 +109,6 @@ class TestPythonTemplateRendering:
             engine.load_and_render("evil", "../../geni.py", ctx)
 
 
-class TestLegacySubstitution:
-    def test_legacy_double_underscore(self, tmp_dir):
-        """Test that __var__ legacy syntax is still supported."""
-        template_dir = tmp_dir / "templates"
-        template_dir.mkdir()
-        tf_dir = template_dir / "terraform"
-        tf_dir.mkdir()
-        (tf_dir / "test.tf").write_text('bucket = "__bucket_name__"')
-
-        engine = TemplateEngine(template_dir)
-        ctx = make_context(
-            params={"bucket_name": "my-bucket"},
-            templates_dir=template_dir,
-            output_dir=tmp_dir,
-        )
-        results = engine.load_and_render("test", "terraform/test.tf", ctx)
-        assert 'my-bucket' in results[0].content
-
-
 class TestSubstitute:
     def test_new_style(self):
         engine = TemplateEngine(Path("."))
@@ -146,3 +127,148 @@ class TestSubstitute:
         ctx = make_context(params={})
         result = engine._substitute("val=${{ unknown }}", ctx)
         assert result == "val=${{ unknown }}"
+
+
+class TestRenderStatic:
+    def test_render_static_hcl(self, tmp_dir):
+        """render_static substitutes placeholders and returns string."""
+        tpl_dir = tmp_dir / "templates" / "terraform"
+        tpl_dir.mkdir(parents=True)
+        (tpl_dir / "bucket.tf").write_text(
+            'resource "google_storage_bucket" "${{ name }}" {\n'
+            '  name    = "${{ bucket_name }}"\n'
+            '  project = "${{ project }}"\n'
+            "}\n"
+        )
+
+        ctx = make_context(templates_dir=tmp_dir / "templates")
+        rendered = ctx.render_static("terraform/bucket.tf", {
+            "name": "assets",
+            "bucket_name": "my-proj-assets",
+            "project": "my-proj",
+        })
+        assert '"assets"' in rendered
+        assert '"my-proj-assets"' in rendered
+        assert '"my-proj"' in rendered
+
+    def test_render_static_loop(self, tmp_dir):
+        """Python template can loop over render_static to produce N resources."""
+        tpl_dir = tmp_dir / "templates" / "terraform"
+        tpl_dir.mkdir(parents=True)
+        (tpl_dir / "bucket.tf").write_text(
+            'resource "google_storage_bucket" "${{ resource_name }}" {\n'
+            '  name = "${{ bucket_name }}"\n'
+            "}\n"
+        )
+
+        ctx = make_context(
+            params={
+                "project": "my-proj",
+                "buckets": [
+                    {"name": "assets"},
+                    {"name": "backups"},
+                ],
+            },
+            templates_dir=tmp_dir / "templates",
+        )
+
+        blocks = []
+        for bucket in ctx.params["buckets"]:
+            hcl = ctx.render_static("terraform/bucket.tf", {
+                "resource_name": bucket["name"],
+                "bucket_name": f"{ctx.params['project']}-{bucket['name']}",
+            })
+            blocks.append(hcl)
+
+        combined = "\n".join(blocks)
+        result = TerraformHCL("storage.tf", combined)
+
+        assert result.file_type == "tf"
+        assert '"assets"' in result.content
+        assert '"backups"' in result.content
+        assert "my-proj-assets" in result.content
+        assert "my-proj-backups" in result.content
+
+    def test_render_static_json(self, tmp_dir):
+        """render_static_json returns a parsed dict from a .tf.json template."""
+        tpl_dir = tmp_dir / "templates" / "terraform"
+        tpl_dir.mkdir(parents=True)
+        (tpl_dir / "bucket.tf.json").write_text(json.dumps({
+            "resource": {
+                "google_storage_bucket": {
+                    "__PLACEHOLDER__": {
+                        "name": "${{ bucket_name }}",
+                        "project": "${{ project }}",
+                        "location": "${{ region }}",
+                    }
+                }
+            }
+        }))
+
+        ctx = make_context(templates_dir=tmp_dir / "templates")
+        result = ctx.render_static_json("terraform/bucket.tf.json", {
+            "bucket_name": "my-proj-assets",
+            "project": "my-proj",
+            "region": "us-central1",
+        })
+
+        assert isinstance(result, dict)
+        bucket = result["resource"]["google_storage_bucket"]["__PLACEHOLDER__"]
+        assert bucket["name"] == "my-proj-assets"
+        assert bucket["project"] == "my-proj"
+        assert bucket["location"] == "us-central1"
+
+    def test_render_static_json_merge(self, tmp_dir):
+        """Multiple render_static_json calls can be merged into one TerraformJSON."""
+        tpl_dir = tmp_dir / "templates" / "terraform"
+        tpl_dir.mkdir(parents=True)
+        (tpl_dir / "bucket.tf.json").write_text(json.dumps({
+            "resource": {
+                "google_storage_bucket": {
+                    "${{ resource_name }}": {
+                        "name": "${{ bucket_name }}",
+                        "project": "${{ project }}",
+                    }
+                }
+            }
+        }))
+
+        ctx = make_context(templates_dir=tmp_dir / "templates")
+        buckets = [
+            {"name": "assets", "project": "my-proj"},
+            {"name": "backups", "project": "my-proj"},
+        ]
+
+        merged = {}
+        for bucket in buckets:
+            tf = ctx.render_static_json("terraform/bucket.tf.json", {
+                "resource_name": bucket["name"],
+                "bucket_name": f"{bucket['project']}-{bucket['name']}",
+                "project": bucket["project"],
+            })
+            # Merge the bucket resources
+            for rtype, resources in tf.get("resource", {}).items():
+                merged.setdefault(rtype, {}).update(resources)
+
+        result = TerraformJSON("storage.tf.json", {"resource": merged})
+        gcs = result.content["resource"]["google_storage_bucket"]
+        assert "assets" in gcs
+        assert "backups" in gcs
+        assert gcs["assets"]["name"] == "my-proj-assets"
+        assert gcs["backups"]["name"] == "my-proj-backups"
+
+    def test_render_static_missing_file(self, tmp_dir):
+        """render_static raises FileNotFoundError for missing templates."""
+        ctx = make_context(templates_dir=tmp_dir)
+        with pytest.raises(FileNotFoundError):
+            ctx.render_static("nonexistent.tf", {})
+
+    def test_render_static_unresolved_placeholder(self, tmp_dir):
+        """Unresolved placeholders are left as-is."""
+        tpl_dir = tmp_dir / "templates"
+        tpl_dir.mkdir()
+        (tpl_dir / "test.tf").write_text('name = "${{ unknown }}"')
+
+        ctx = make_context(templates_dir=tpl_dir)
+        result = ctx.render_static("test.tf", {})
+        assert "${{ unknown }}" in result

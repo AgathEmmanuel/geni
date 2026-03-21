@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from geni.state import GeniLockFile, compute_hash, hash_file, AtomicCompiler
+from geni.state import GeniLockFile, compute_hash, hash_file, AtomicGenerator
 
 
 class TestGeniLockFile:
@@ -57,11 +57,11 @@ class TestComputeHash:
         assert compute_hash(f1) != compute_hash(f2)
 
 
-class TestAtomicCompiler:
+class TestAtomicGenerator:
     def test_successful_swap(self, tmp_dir):
         output = tmp_dir / "output"
 
-        with AtomicCompiler(output) as ac:
+        with AtomicGenerator(output) as ac:
             (ac.staging_path / "test.tf").write_text("resource {}")
 
         assert output.exists()
@@ -74,9 +74,9 @@ class TestAtomicCompiler:
         (output / "original.tf").write_text("original content")
 
         with pytest.raises(ValueError):
-            with AtomicCompiler(output) as ac:
+            with AtomicGenerator(output) as ac:
                 (ac.staging_path / "new.tf").write_text("new content")
-                raise ValueError("compilation failed")
+                raise ValueError("generation failed")
 
         # Original should be preserved
         assert (output / "original.tf").exists()
@@ -90,7 +90,7 @@ class TestAtomicCompiler:
         tf_dir.mkdir()
         (tf_dir / "providers.lock").write_text("lock data")
 
-        with AtomicCompiler(output) as ac:
+        with AtomicGenerator(output) as ac:
             (ac.staging_path / "new.tf").write_text("new resource")
 
         assert (output / "new.tf").exists()

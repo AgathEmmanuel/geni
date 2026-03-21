@@ -22,7 +22,7 @@ spec:
     app_image: nginx:1.25-alpine
     app_port: 80
 
-  output: compiled/prod
+  output: generated/prod
 
   resources:
     # --- Terraform backend (GCS for state) ---
@@ -97,6 +97,61 @@ spec:
         environment: ${{ data.environment }}
         cluster_name: ${{ data.cluster_name }}
         network_name: ${{ data.network_name }}
+
+    # --- Memorystore Redis (uses render_static) ---
+    redis:
+      template: terraform/redis.py
+      params:
+        project: ${{ data.project }}
+        region: ${{ data.region }}
+        environment: ${{ data.environment }}
+        network_name: ${{ data.network_name }}
+        default_tier: STANDARD_HA
+        instances:
+          - name: cache
+            memory_size_gb: 5
+            tier: STANDARD_HA
+          - name: sessions
+            memory_size_gb: 2
+            tier: STANDARD_HA
+            maxmemory_policy: volatile-lru
+
+    # --- Nginx ingress (direct Helm chart) ---
+    ingress:
+      chart:
+        path: charts/nginx-ingress
+      params:
+        namespace: ${{ data.app_namespace }}
+        replicaCount: 3
+        serviceType: LoadBalancer
+
+    # --- Monitoring stack (Helm via Python template) ---
+    monitoring:
+      template: kubernetes/monitoring.py
+      params:
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+        chart_path: charts/monitoring-stack
+        namespace: monitoring
+        retention: 90d
+        storage_size: 100Gi
+        prometheus_replicas: 2
+        grafana_replicas: 2
+        alert_channel: "#prod-alerts"
+        prometheus_resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+        grafana_resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
 
     # --- Sample microservice (K8s manifests) ---
     microservice:

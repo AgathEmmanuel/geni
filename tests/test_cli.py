@@ -56,7 +56,7 @@ class TestValidate:
             os.chdir(old_cwd)
 
 
-class TestCompile:
+class TestGenerate:
     def _setup_project(self, fixture_dir, tmp_dir):
         fixture = fixture_dir / "simple-kubernetes"
         project_dir = tmp_dir / "project"
@@ -65,28 +65,28 @@ class TestCompile:
         targets_dir = project_dir / "targets"
         targets_dir.mkdir()
         raw = yaml.safe_load((fixture / "target.yml").read_text())
-        raw["spec"]["output"] = str(tmp_dir / "compiled")
+        raw["spec"]["output"] = str(tmp_dir / "generated")
         (targets_dir / "simple-kubernetes.yml").write_text(yaml.dump(raw))
 
         templates_dir = project_dir / "templates"
         shutil.copytree(fixture / "templates", templates_dir)
         return project_dir
 
-    def test_compile_subcommand(self, runner, fixture_dir, tmp_dir):
-        """geni compile -t works as a subcommand."""
+    def test_generate_subcommand(self, runner, fixture_dir, tmp_dir):
+        """geni generate -t works as a subcommand."""
         project_dir = self._setup_project(fixture_dir, tmp_dir)
         import os
         old_cwd = os.getcwd()
         try:
             os.chdir(project_dir)
-            result = runner.invoke(main, ["compile", "-t", "simple-kubernetes"])
+            result = runner.invoke(main, ["generate", "-t", "simple-kubernetes"])
             assert result.exit_code == 0
             assert "Wrote" in result.output
         finally:
             os.chdir(old_cwd)
 
-    def test_compile_default(self, runner, fixture_dir, tmp_dir):
-        """geni -t works without the compile subcommand."""
+    def test_generate_default(self, runner, fixture_dir, tmp_dir):
+        """geni -t works without the generate subcommand."""
         project_dir = self._setup_project(fixture_dir, tmp_dir)
         import os
         old_cwd = os.getcwd()

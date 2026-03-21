@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from geni.template import GeneratedFile
-from geni.errors import CompilationError
 
 
 class FileWriter:

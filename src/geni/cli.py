@@ -20,22 +20,22 @@ def setup_logging(verbosity: int):
     )
 
 
-def _do_compile(config, target, dry_run, force):
-    """Shared compile logic used by both the default command and the compile subcommand."""
-    from geni.compiler import GeniCompiler
+def _do_generate(config, target, dry_run, force):
+    """Shared generate logic used by both the default command and the generate subcommand."""
+    from geni.generator import GeniGenerator
 
-    compiler = GeniCompiler(config)
+    generator = GeniGenerator(config)
 
     if target:
         target_path = config.targets_dir / f"{target}.yml"
         if not target_path.exists():
             click.echo(f"Error: target file not found: {target_path}", err=True)
             sys.exit(1)
-        results = compiler.compile_target(target_path, dry_run=dry_run, force=force)
+        results = generator.generate_target(target_path, dry_run=dry_run, force=force)
         action = "Would write" if dry_run else "Wrote"
         click.echo(f"[+] {action} {len(results)} files for target '{target}'")
     else:
-        all_results = compiler.compile_all(dry_run=dry_run, force=force)
+        all_results = generator.generate_all(dry_run=dry_run, force=force)
         for name, paths in all_results.items():
             action = "Would write" if dry_run else "Wrote"
             click.echo(f"[+] {action} {len(paths)} files for target '{name}'")
@@ -44,18 +44,18 @@ def _do_compile(config, target, dry_run, force):
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="geni")
 @click.option("-v", "--verbose", count=True, help="Increase verbosity (-v info, -vv debug)")
-@click.option("-t", "--target", default=None, help="Target name to compile (without .yml extension)")
-@click.option("--dry-run", is_flag=True, help="Show what would be compiled without writing")
-@click.option("--force", is_flag=True, help="Force recompilation even if unchanged")
+@click.option("-t", "--target", default=None, help="Target name to generate (without .yml extension)")
+@click.option("--dry-run", is_flag=True, help="Show what would be generated without writing")
+@click.option("--force", is_flag=True, help="Force regeneration even if unchanged")
 @click.pass_context
 def main(ctx, verbose, target, dry_run, force):
-    """geni -- Python-powered infrastructure-as-code compiler.
+    """geni -- Python-powered infrastructure-as-code generator.
 
-    When invoked without a subcommand, compiles targets directly:
+    When invoked without a subcommand, generates targets directly:
 
-        geni -t prod          compile a single target
+        geni -t prod          generate a single target
 
-        geni                  compile all targets
+        geni                  generate all targets
 
         geni -t prod --dry-run
     """
@@ -64,28 +64,32 @@ def main(ctx, verbose, target, dry_run, force):
     ctx.obj["config"] = GeniConfig.load()
     ctx.obj["verbose"] = verbose
 
-    # If no subcommand was given, run compile as the default action
+    # If no subcommand was given, run generate as the default action
     if ctx.invoked_subcommand is None:
         try:
-            _do_compile(ctx.obj["config"], target, dry_run, force)
+            _do_generate(ctx.obj["config"], target, dry_run, force)
         except GeniError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
 
 
-@main.command()
-@click.option("-t", "--target", help="Target name to compile (without .yml extension)")
-@click.option("--all", "compile_all", is_flag=True, help="Compile all targets")
-@click.option("--dry-run", is_flag=True, help="Show what would be compiled without writing")
-@click.option("--force", is_flag=True, help="Force recompilation even if unchanged")
-def compile(target, compile_all, dry_run, force):
-    """Compile target YAML into infrastructure artifacts."""
+@main.command(name="generate")
+@click.option("-t", "--target", help="Target name to generate (without .yml extension)")
+@click.option("--all", "generate_all", is_flag=True, help="Generate all targets")
+@click.option("--dry-run", is_flag=True, help="Show what would be generated without writing")
+@click.option("--force", is_flag=True, help="Force regeneration even if unchanged")
+def generate(target, generate_all, dry_run, force):
+    """Generate infrastructure artifacts from target YAML."""
     config = click.get_current_context().obj["config"]
     try:
-        _do_compile(config, target, dry_run, force)
+        _do_generate(config, target, dry_run, force)
     except GeniError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+
+# Short alias: geni g -t dev
+main.add_command(generate, name="g")
 
 
 @main.command()
@@ -93,10 +97,10 @@ def compile(target, compile_all, dry_run, force):
 @click.option("--all", "validate_all", is_flag=True, help="Validate all targets")
 def validate(target, validate_all):
     """Validate target YAML files against the schema."""
-    from geni.compiler import GeniCompiler
+    from geni.generator import GeniGenerator
 
     config = click.get_current_context().obj["config"]
-    compiler = GeniCompiler(config)
+    generator = GeniGenerator(config)
 
     targets = []
     if target:
@@ -111,7 +115,7 @@ def validate(target, validate_all):
             errors += 1
             continue
         try:
-            compiler.validate_target(t)
+            generator.validate_target(t)
             click.echo(f"[+] Valid: {t.stem}")
         except GeniError as e:
             click.echo(f"[!] Invalid: {t.stem} -- {e}", err=True)
@@ -124,11 +128,11 @@ def validate(target, validate_all):
 @main.command()
 @click.option("-t", "--target", required=True, help="Target name to diff")
 def diff(target):
-    """Show what would change if a target were recompiled."""
-    from geni.compiler import GeniCompiler
+    """Show what would change if a target were regenerated."""
+    from geni.generator import GeniGenerator
 
     config = click.get_current_context().obj["config"]
-    compiler = GeniCompiler(config)
+    generator = GeniGenerator(config)
 
     target_path = config.targets_dir / f"{target}.yml"
     if not target_path.exists():
@@ -136,7 +140,7 @@ def diff(target):
         sys.exit(1)
 
     try:
-        diff_output = compiler.diff_target(target_path)
+        diff_output = generator.diff_target(target_path)
         if diff_output:
             click.echo(diff_output)
         else:
@@ -152,7 +156,7 @@ def init(project_dir):
     """Initialize a new geni project with example files."""
     project = Path(project_dir)
 
-    dirs = ["targets", "templates/terraform", "templates/kubernetes", "compiled"]
+    dirs = ["targets", "templates/terraform", "templates/kubernetes", "generated"]
     for d in dirs:
         (project / d).mkdir(parents=True, exist_ok=True)
 
@@ -169,7 +173,7 @@ spec:
   data:
     project: my-project
     region: us-central1
-  output: compiled/terraform/example
+  output: generated/terraform/example
   resources:
     backend:
       template: terraform/backend.tf
@@ -194,28 +198,10 @@ spec:
     if not config_file.exists():
         config_file.write_text("""templates_dir: templates
 targets_dir: targets
-compiled_dir: compiled
+generated_dir: generated
 """)
 
     click.echo(f"[+] Initialized geni project in {project.resolve()}")
     click.echo("    - targets/example.yml (example target)")
     click.echo("    - templates/terraform/backend.tf (example template)")
-    click.echo("    Run: geni -t example")
-
-
-@main.command()
-@click.option("--targets", is_flag=True, help="Migrate target files to v1alpha1 format")
-def migrate(targets):
-    """Migrate legacy format files to the current schema."""
-    from geni.compat import migrate_target_file
-
-    config = click.get_current_context().obj["config"]
-
-    if targets:
-        for t in sorted(config.targets_dir.glob("*.yml")):
-            try:
-                migrate_target_file(t)
-            except Exception as e:
-                click.echo(f"[!] Failed to migrate {t.name}: {e}", err=True)
-    else:
-        click.echo("Specify --targets to migrate target YAML files")
+    click.echo("    Run: geni generate -t example")

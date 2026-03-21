@@ -3,7 +3,7 @@ import subprocess
 import logging
 from pathlib import Path
 
-from geni.errors import CompilationError
+from geni.errors import GenerationError
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ def convert_hcl_to_json(hcl_path: Path, output_dir: Path | None = None) -> Path:
     Returns the path to the generated .tf.json file.
     """
     if not hcl_path.exists():
-        raise CompilationError(f"HCL file not found: {hcl_path}", path=str(hcl_path))
+        raise GenerationError(f"HCL file not found: {hcl_path}", path=str(hcl_path))
 
     if output_dir is None:
         output_dir = hcl_path.parent
@@ -43,16 +43,16 @@ def convert_hcl_to_json(hcl_path: Path, output_dir: Path | None = None) -> Path:
             if json_path.exists():
                 json_path.unlink()
             stderr = result.stderr.decode().strip() if result.stderr else "unknown error"
-            raise CompilationError(
+            raise GenerationError(
                 f"hcl2json failed: {stderr}", path=str(hcl_path)
             )
         return json_path
     except FileNotFoundError:
-        raise CompilationError(
+        raise GenerationError(
             "hcl2json not found. Install it: https://github.com/tmccombs/hcl2json",
             path=str(hcl_path),
         )
     except subprocess.TimeoutExpired:
-        raise CompilationError(
+        raise GenerationError(
             f"hcl2json timed out converting {hcl_path}", path=str(hcl_path)
         )

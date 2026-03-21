@@ -43,7 +43,7 @@ spec:
     containers:
       - app-data
       - app-logs
-  output: compiled/dev
+  output: generated/dev
   resources:
     backend:
       template: terraform/backend.tf

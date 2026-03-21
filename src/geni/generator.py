@@ -8,21 +8,20 @@ from pathlib import Path
 from typing import Any
 
 from geni.schema import TargetManifest, load_target, resolve_refs, ResourceDef, ChartSource
-from geni.compat import is_legacy_format, upgrade_legacy_target
 from geni.engine import TemplateEngine
 from geni.template import RenderContext, GeneratedFile
 from geni.writers import FileWriter
 from geni.integrations.helm import render_helm_chart, HelmChartResolver
 from geni.integrations.hcl import convert_hcl_to_json
-from geni.state import GeniLockFile, AtomicCompiler, compute_hash, hash_file
+from geni.state import GeniLockFile, AtomicGenerator, compute_hash, hash_file
 from geni.config import GeniConfig
-from geni.errors import GeniError, CompilationError
+from geni.errors import GeniError, GenerationError
 
 logger = logging.getLogger(__name__)
 
 
-class GeniCompiler:
-    """Main compilation orchestrator for geni targets."""
+class GeniGenerator:
+    """Main generation orchestrator for geni targets."""
 
     def __init__(self, config: GeniConfig):
         self.config = config
@@ -33,13 +32,13 @@ class GeniCompiler:
     # Public API
     # ------------------------------------------------------------------
 
-    def compile_target(
+    def generate_target(
         self,
         target_path: Path,
         dry_run: bool = False,
         force: bool = False,
     ) -> list[Path]:
-        """Compile a single target file and return the list of written paths."""
+        """Generate artifacts from a single target file and return the list of written paths."""
         manifest = self._load_and_validate(target_path)
         target_name = manifest.metadata.name
         data = manifest.spec.data
@@ -53,7 +52,7 @@ class GeniCompiler:
                 update={"params": resolved_params}
             )
 
-        # Check lock file for incremental compilation
+        # Check lock file for incremental generation
         lock_path = output_dir / ".geni-lock.json"
         lock_file = GeniLockFile(lock_path)
         input_hash = compute_hash(target_path)
@@ -61,27 +60,27 @@ class GeniCompiler:
         if not force and lock_file.get_input_hash(target_name) == input_hash:
             logger.info(
                 f"Target '{target_name}' is up to date (hash {input_hash[:12]}...); "
-                f"skipping. Use --force to recompile."
+                f"skipping. Use --force to regenerate."
             )
             return []
 
-        # Compile
+        # Generate
         all_written: list[Path] = []
 
         if dry_run:
             staging_dir = Path(tempfile.mkdtemp(prefix="geni-dry-run-"))
-            all_written = self._do_compile(
+            all_written = self._do_generate(
                 resolved_resources, data, staging_dir, target_name
             )
             logger.info(f"Dry run: would write {len(all_written)} files to {output_dir}")
             return all_written
 
-        with AtomicCompiler(output_dir) as ac:
-            all_written = self._do_compile(
-                resolved_resources, data, ac.staging_path, target_name
+        with AtomicGenerator(output_dir) as ag:
+            all_written = self._do_generate(
+                resolved_resources, data, ag.staging_path, target_name
             )
 
-        # Update lock file after successful compilation
+        # Update lock file after successful generation
         output_hashes = {}
         for p in all_written:
             if p.exists():
@@ -103,16 +102,16 @@ class GeniCompiler:
         lock_file.save()
 
         logger.info(
-            f"Compiled target '{target_name}': {len(all_written)} files -> {output_dir}"
+            f"Generated target '{target_name}': {len(all_written)} files -> {output_dir}"
         )
         return all_written
 
-    def compile_all(
+    def generate_all(
         self,
         dry_run: bool = False,
         force: bool = False,
     ) -> dict[str, list[Path]]:
-        """Compile all targets in the targets directory."""
+        """Generate artifacts for all targets in the targets directory."""
         results: dict[str, list[Path]] = {}
         targets_dir = self.config.targets_dir
 
@@ -123,10 +122,10 @@ class GeniCompiler:
         for target_file in sorted(targets_dir.glob("*.yml")):
             target_name = target_file.stem
             try:
-                paths = self.compile_target(target_file, dry_run=dry_run, force=force)
+                paths = self.generate_target(target_file, dry_run=dry_run, force=force)
                 results[target_name] = paths
             except GeniError as e:
-                logger.error(f"Failed to compile target '{target_name}': {e}")
+                logger.error(f"Failed to generate target '{target_name}': {e}")
                 results[target_name] = []
 
         return results
@@ -136,7 +135,7 @@ class GeniCompiler:
         return self._load_and_validate(target_path)
 
     def diff_target(self, target_path: Path) -> str:
-        """Compile to a temp dir and diff against current output."""
+        """Generate to a temp dir and diff against current output."""
         manifest = self._load_and_validate(target_path)
         output_dir = Path(manifest.spec.output)
         data = manifest.spec.data
@@ -149,7 +148,7 @@ class GeniCompiler:
             )
 
         staging_dir = Path(tempfile.mkdtemp(prefix="geni-diff-"))
-        self._do_compile(resolved_resources, data, staging_dir, manifest.metadata.name)
+        self._do_generate(resolved_resources, data, staging_dir, manifest.metadata.name)
 
         diff_lines: list[str] = []
 
@@ -194,39 +193,36 @@ class GeniCompiler:
     # ------------------------------------------------------------------
 
     def _load_and_validate(self, target_path: Path) -> TargetManifest:
-        """Load a target file, handling legacy format if needed."""
+        """Load and validate a target file."""
         raw = yaml.safe_load(target_path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
-            raise CompilationError(
+            raise GenerationError(
                 "Target file must be a YAML mapping", path=str(target_path)
             )
 
-        if is_legacy_format(raw):
-            raw = upgrade_legacy_target(raw, target_path.name)
-
         return TargetManifest.model_validate(raw)
 
-    def _do_compile(
+    def _do_generate(
         self,
         resources: dict[str, ResourceDef],
         data: dict[str, Any],
         staging_dir: Path,
         target_name: str,
     ) -> list[Path]:
-        """Compile all resources into the staging directory."""
+        """Generate all resources into the staging directory."""
         writer = FileWriter(staging_dir)
-        compiled_resources: dict[str, Any] = {}
+        generated_resources: dict[str, Any] = {}
         all_written: list[Path] = []
 
         for res_name, res_def in resources.items():
             if res_def.template is not None:
-                written = self._compile_template_resource(
-                    res_name, res_def, data, compiled_resources, staging_dir, writer
+                written = self._generate_template_resource(
+                    res_name, res_def, data, generated_resources, staging_dir, writer
                 )
                 all_written.extend(written)
 
             elif res_def.chart is not None:
-                written = self._compile_chart_resource(
+                written = self._generate_chart_resource(
                     res_name, res_def, data, staging_dir
                 )
                 all_written.extend(written)
@@ -238,25 +234,26 @@ class GeniCompiler:
 
         return all_written
 
-    def _compile_template_resource(
+    def _generate_template_resource(
         self,
         res_name: str,
         res_def: ResourceDef,
         data: dict[str, Any],
-        compiled_resources: dict[str, Any],
+        generated_resources: dict[str, Any],
         staging_dir: Path,
         writer: FileWriter,
     ) -> list[Path]:
-        """Compile a template-based resource."""
+        """Generate a template-based resource."""
         template_path = res_def.template
         assert template_path is not None
 
         context = RenderContext(
             params=res_def.params,
             data=data,
-            resources=compiled_resources,
+            resources=generated_resources,
             templates_dir=self.config.templates_dir,
             output_dir=staging_dir,
+            _helm_resolver=self.helm_resolver,
         )
 
         # If it's a .tf file (raw HCL, not .tf.json and not .py), try converting
@@ -268,7 +265,7 @@ class GeniCompiler:
                     json_path = convert_hcl_to_json(hcl_abs)
                     rel_json = json_path.relative_to(self.config.templates_dir.resolve())
                     template_path = str(rel_json)
-                except CompilationError:
+                except GenerationError:
                     logger.debug(
                         f"hcl2json conversion failed for {template_path}, "
                         "rendering as static HCL template"
@@ -278,20 +275,20 @@ class GeniCompiler:
 
         written_paths = writer.write_all(generated)
 
-        # Store in compiled_resources for cross-resource references
+        # Store in generated_resources for cross-resource references
         for gf in generated:
-            compiled_resources[res_name] = gf.content
+            generated_resources[res_name] = gf.content
 
         return written_paths
 
-    def _compile_chart_resource(
+    def _generate_chart_resource(
         self,
         res_name: str,
         res_def: ResourceDef,
         data: dict[str, Any],
         staging_dir: Path,
     ) -> list[Path]:
-        """Compile a Helm chart resource."""
+        """Generate a Helm chart resource."""
         chart_source = res_def.chart
         if chart_source is None:
             return []
@@ -321,6 +318,7 @@ class GeniCompiler:
                     resources={},
                     templates_dir=self.config.templates_dir,
                     output_dir=staging_dir,
+                    _helm_resolver=self.helm_resolver,
                 )
                 rendered_values = self.engine._substitute(raw_values, context)
                 values = yaml.safe_load(rendered_values) or {}

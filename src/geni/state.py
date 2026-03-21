@@ -7,8 +7,6 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from geni.errors import CompilationError
-
 logger = logging.getLogger(__name__)
 
 
@@ -19,11 +17,11 @@ class LockEntry:
 
 
 class GeniLockFile:
-    """Manages .geni-lock.json for tracking compilation state."""
+    """Manages .geni-lock.json for tracking generation state."""
 
     def __init__(self, lock_path: Path):
         self.lock_path = lock_path
-        self._data: dict = {"version": 1, "compiled_at": None, "targets": {}}
+        self._data: dict = {"version": 1, "generated_at": None, "targets": {}}
         if lock_path.exists():
             with open(lock_path) as f:
                 self._data = json.load(f)
@@ -33,7 +31,7 @@ class GeniLockFile:
         return entry.get("input_hash") if entry else None
 
     def update(self, target_name: str, input_hash: str, outputs: dict[str, str]):
-        self._data["compiled_at"] = datetime.now(timezone.utc).isoformat()
+        self._data["generated_at"] = datetime.now(timezone.utc).isoformat()
         self._data.setdefault("targets", {})[target_name] = {
             "input_hash": input_hash,
             "outputs": outputs,
@@ -63,8 +61,8 @@ def hash_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-class AtomicCompiler:
-    """Compiles to a staging directory and atomically swaps on success."""
+class AtomicGenerator:
+    """Generates to a staging directory and atomically swaps on success."""
 
     def __init__(self, output_dir: Path):
         self.output_dir = output_dir
@@ -79,8 +77,8 @@ class AtomicCompiler:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
-            # Compilation failed -- clean up staging, keep original
-            logger.error("Compilation failed, cleaning up staging dir")
+            # Generation failed -- clean up staging, keep original
+            logger.error("Generation failed, cleaning up staging dir")
             if self.staging_dir.exists():
                 shutil.rmtree(self.staging_dir)
             return False
@@ -122,7 +120,7 @@ class AtomicCompiler:
                         shutil.copy2(item, dest)
             shutil.rmtree(backup)
 
-        logger.info(f"Compiled output written to {self.output_dir}")
+        logger.info(f"Generated output written to {self.output_dir}")
 
     def get_output_hashes(self) -> dict[str, str]:
         """Get SHA256 hashes of all files in output_dir."""

@@ -10,7 +10,7 @@ build/
 venv/
 
 # Geni
-compiled/
+generated/
 .geni-staging-*/
 .geni-backup-*/
 .geni-lock.json
@@ -20,6 +20,9 @@ compiled/
 .terraform.*
 *.tfstate
 *.tfstate.*
+
+# Helm Charts
+# charts/
 
 # IDE
 .idea/

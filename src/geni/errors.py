@@ -19,8 +19,8 @@ class TemplateError(GeniError):
     """Raised on template loading or rendering failures."""
 
 
-class CompilationError(GeniError):
-    """Raised on compilation failures."""
+class GenerationError(GeniError):
+    """Raised on generation failures."""
 
 
 class HelmError(GeniError):

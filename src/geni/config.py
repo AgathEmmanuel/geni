@@ -9,7 +9,7 @@ import yaml
 class GeniConfig:
     templates_dir: Path = field(default_factory=lambda: Path("templates"))
     targets_dir: Path = field(default_factory=lambda: Path("targets"))
-    compiled_dir: Path = field(default_factory=lambda: Path("compiled"))
+    generated_dir: Path = field(default_factory=lambda: Path("generated"))
 
     @classmethod
     def load(cls, project_root: Path = Path(".")) -> GeniConfig:
@@ -21,6 +21,6 @@ class GeniConfig:
             return cls(
                 templates_dir=Path(raw.get("templates_dir", "templates")),
                 targets_dir=Path(raw.get("targets_dir", "targets")),
-                compiled_dir=Path(raw.get("compiled_dir", "compiled")),
+                generated_dir=Path(raw.get("generated_dir", "generated")),
             )
         return cls()

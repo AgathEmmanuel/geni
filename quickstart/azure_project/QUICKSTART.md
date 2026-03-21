@@ -1,6 +1,6 @@
 # Azure Quickstart - geni
 
-This quickstart deploys a complete Azure development environment using **geni** to compile YAML targets into Terraform and Kubernetes artifacts.
+This quickstart deploys a complete Azure development environment using **geni** to generate Terraform and Kubernetes artifacts from YAML targets into Terraform and Kubernetes artifacts.
 
 ## What Gets Deployed
 
@@ -126,7 +126,7 @@ tenant_id: "YOUR_TENANT_ID"                # az account show --query tenantId -o
 
 Optionally adjust other parameters such as `location`, `vm_size`, `k8s_vm_size`, CIDR ranges, or database settings to fit your requirements.
 
-## 4. Compile with geni
+## 4. Generate with geni
 
 From the `azure_project/` directory:
 
@@ -135,10 +135,10 @@ cd quickstart/azure_project
 geni -t dev
 ```
 
-This compiles the target and produces output in `compiled/dev/`:
+This generates the target and produces output in `generated/dev/`:
 
 ```
-compiled/dev/
+generated/dev/
   terraform/
     backend.tf
     provider.tf
@@ -156,7 +156,7 @@ compiled/dev/
 ## 5. Deploy Infrastructure
 
 ```bash
-cd compiled/dev/terraform
+cd generated/dev/terraform
 
 # Initialize Terraform (downloads providers, configures backend)
 terraform init
@@ -190,16 +190,16 @@ Before deploying, update the workload identity client ID in the Kubernetes manif
 
 ```bash
 # Get the app workload identity client ID
-APP_CLIENT_ID=$(terraform -chdir=compiled/dev/terraform output -raw identity_app_workload_client_id)
+APP_CLIENT_ID=$(terraform -chdir=generated/dev/terraform output -raw identity_app_workload_client_id)
 
 # Replace the placeholder in the manifest
-sed -i "s/<APP_WORKLOAD_IDENTITY_CLIENT_ID>/$APP_CLIENT_ID/g" compiled/dev/kubernetes/sample-app.yml
+sed -i "s/<APP_WORKLOAD_IDENTITY_CLIENT_ID>/$APP_CLIENT_ID/g" generated/dev/kubernetes/sample-app.yml
 ```
 
 Deploy the application:
 
 ```bash
-kubectl apply -f compiled/dev/kubernetes/sample-app.yml
+kubectl apply -f generated/dev/kubernetes/sample-app.yml
 
 # Verify
 kubectl -n sample-app get pods
@@ -212,11 +212,11 @@ Save the SSH private key and connect:
 
 ```bash
 # Extract the SSH key
-terraform -chdir=compiled/dev/terraform output -raw vm_ssh_private_key > ~/.ssh/vm-myazureproject-dev.pem
+terraform -chdir=generated/dev/terraform output -raw vm_ssh_private_key > ~/.ssh/vm-myazureproject-dev.pem
 chmod 600 ~/.ssh/vm-myazureproject-dev.pem
 
 # Get the VM public IP
-VM_IP=$(terraform -chdir=compiled/dev/terraform output -raw vm_public_ip)
+VM_IP=$(terraform -chdir=generated/dev/terraform output -raw vm_public_ip)
 
 # Connect
 ssh -i ~/.ssh/vm-myazureproject-dev.pem azureadmin@$VM_IP
@@ -228,8 +228,8 @@ The PostgreSQL server is on a private subnet and not directly accessible from th
 
 ```bash
 # Get connection details
-DB_FQDN=$(terraform -chdir=compiled/dev/terraform output -raw db_fqdn)
-DB_PASS=$(terraform -chdir=compiled/dev/terraform output -raw db_admin_password)
+DB_FQDN=$(terraform -chdir=generated/dev/terraform output -raw db_fqdn)
+DB_PASS=$(terraform -chdir=generated/dev/terraform output -raw db_admin_password)
 
 # SSH tunnel through the bastion VM
 ssh -i ~/.ssh/vm-myazureproject-dev.pem \
@@ -257,7 +257,7 @@ psql "host=psql-myazureproject-dev.postgres.database.azure.com port=5432 \
 1. Copy `targets/dev.yml` to `targets/staging.yml`
 2. Update the metadata name, labels, and parameters (resource group, CIDRs, SKUs, etc.)
 3. Compile: `geni -t staging`
-4. Deploy: `cd compiled/staging/terraform && terraform init && terraform apply`
+4. Deploy: `cd generated/staging/terraform && terraform init && terraform apply`
 
 ### Scaling the AKS cluster
 
@@ -269,11 +269,11 @@ k8s_max_count: 10
 k8s_vm_size: Standard_D4s_v3
 ```
 
-Recompile and apply:
+Regenerate and apply:
 
 ```bash
 geni -t dev
-cd compiled/dev/terraform
+cd generated/dev/terraform
 terraform plan -out=tfplan
 terraform apply tfplan
 ```
@@ -303,7 +303,7 @@ containers:
 ### Destroy infrastructure
 
 ```bash
-cd compiled/dev/terraform
+cd generated/dev/terraform
 terraform destroy
 ```
 

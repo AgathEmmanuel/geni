@@ -22,7 +22,7 @@ spec:
     app_image: nginx:1.25
     app_port: 80
 
-  output: compiled/dev
+  output: generated/dev
 
   resources:
     backend:

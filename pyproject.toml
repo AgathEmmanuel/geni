@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "geni"
 version = "0.1.0"
-description = "Python-powered infrastructure-as-code compiler. One YAML per environment, compiled into Terraform, Kubernetes, and Helm artifacts."
+description = "Python-powered infrastructure-as-code generator. One YAML per environment, generated into Terraform, Kubernetes, and Helm artifacts."
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.10"

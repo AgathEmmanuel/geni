@@ -22,7 +22,7 @@ spec:
     app_image: nginx:1.25-alpine
     app_port: 80
 
-  output: compiled/dev
+  output: generated/dev
 
   resources:
     # --- Terraform backend (GCS for state) ---
@@ -95,6 +95,42 @@ spec:
         environment: ${{ data.environment }}
         cluster_name: ${{ data.cluster_name }}
         network_name: ${{ data.network_name }}
+
+    # --- Memorystore Redis (uses render_static) ---
+    redis:
+      template: terraform/redis.py
+      params:
+        project: ${{ data.project }}
+        region: ${{ data.region }}
+        environment: ${{ data.environment }}
+        network_name: ${{ data.network_name }}
+        default_tier: BASIC
+        instances:
+          - name: cache
+            memory_size_gb: 1
+
+    # --- Nginx ingress (direct Helm chart) ---
+    ingress:
+      chart:
+        path: charts/nginx-ingress
+      params:
+        namespace: ${{ data.app_namespace }}
+        replicaCount: 1
+        serviceType: ClusterIP
+
+    # --- Monitoring stack (Helm via Python template) ---
+    monitoring:
+      template: kubernetes/monitoring.py
+      params:
+        project: ${{ data.project }}
+        environment: ${{ data.environment }}
+        chart_path: charts/monitoring-stack
+        namespace: monitoring
+        retention: 7d
+        storage_size: 10Gi
+        prometheus_replicas: 1
+        grafana_replicas: 1
+        alert_channel: "#dev-alerts"
 
     # --- Sample microservice (K8s manifests) ---
     microservice:

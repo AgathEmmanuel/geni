@@ -1,8 +1,8 @@
 # geni
 
-**Python-powered infrastructure-as-code compiler.**
+**Python-powered infrastructure-as-code generator.**
 
-One YAML per environment, compiled into Terraform, Kubernetes, and Helm artifacts.
+One YAML per environment, generated into Terraform, Kubernetes, and Helm artifacts.
 
 <!-- [![PyPI version](https://badge.fury.io/py/geni.svg)](https://pypi.org/project/geni/) -->
 <!-- [![CI](https://github.com/AgathEmmanuel/geni/actions/workflows/ci.yml/badge.svg)](https://github.com/AgathEmmanuel/geni/actions) -->
@@ -13,17 +13,17 @@ One YAML per environment, compiled into Terraform, Kubernetes, and Helm artifact
 ## How It Works
 
 ```
-targets/dev.yml          geni compile         compiled/dev/
-targets/test.yml    ──────────────────►    compiled/test/
-targets/prod.yml                           compiled/prod/
+targets/dev.yml          geni generate        generated/dev/
+targets/test.yml    ──────────────────►    generated/test/
+targets/prod.yml                           generated/prod/
         │                                        │
         ▼                                        ▼
-   One YAML per env                    Terraform .tf.json
+   One YAML per env                    Terraform .tf.json / .tf
    defines all infra                   Kubernetes .yml
-                                       Helm charts
+                                       Helm charts (rendered)
 ```
 
-You write **one YAML target per environment**. Each target references **templates** (Python or static) that generate the actual infrastructure files. Change a parameter in the YAML, recompile, and all downstream artifacts update consistently.
+You write **one YAML target per environment**. Each target references **templates** (Python or static) and **Helm charts** that generate the actual infrastructure files. Change a parameter in the YAML, regenerate, and all downstream artifacts update consistently.
 
 ---
 
@@ -93,16 +93,16 @@ my-infra/
         └── backend.tf         # example static template
 ```
 
-Compile and inspect:
+Generate and inspect:
 
 ```bash
-geni -t example
-ls compiled/terraform/example/
+geni generate -t example
+ls generated/terraform/example/
 ```
 
 ### Option 2: Clone this repo and use the included targets
 
-This repo ships with three ready-to-use GCP targets (dev, test, prod) demonstrating a full infrastructure stack:
+This repo ships with three ready-to-use GCP targets (dev, test, prod) demonstrating a full infrastructure stack with Terraform, Kubernetes, and Helm:
 
 ```bash
 git clone https://github.com/AgathEmmanuel/geni.git
@@ -113,21 +113,29 @@ pip install .
 ls targets/
 # dev.yml  test.yml  prod.yml
 
-# Compile the dev environment
-geni -t dev
+# Generate the dev environment
+geni generate -t dev
 
-# Compile all environments
-geni
+# Generate all environments
+geni generate
 ```
 
-After compilation, inspect the output:
+After generation, inspect the output:
 
 ```bash
-ls compiled/dev/
-# backend.tf          networking.tf.json    compute.tf.json
-# provider.tf         iam.tf.json           kubernetes.tf.json
-# storage.tf.json     00-namespace.yml      01-configmap.yml
-# 02-serviceaccount.yml  03-deployment.yml  04-service.yml
+ls generated/dev/
+# backend.tf               provider.tf              redis.tf
+# networking.tf.json       iam.tf.json              compute.tf.json
+# storage.tf.json          kubernetes.tf.json
+# 00-namespace.yml         01-configmap.yml         02-serviceaccount.yml
+# 03-deployment.yml        04-service.yml
+# monitoring-namespace-monitoring.yml
+# monitoring-deployment-dev-monitoring-prometheus.yml
+# monitoring-deployment-dev-monitoring-grafana.yml
+# monitoring-service-dev-monitoring-prometheus.yml
+# monitoring-service-dev-monitoring-grafana.yml
+# nginx-ingress/templates/deployment.yaml
+# nginx-ingress/templates/service.yaml
 ```
 
 ---
@@ -136,17 +144,18 @@ ls compiled/dev/
 
 ### Understanding the included targets
 
-The repo includes three environment targets for GCP, each producing Terraform + Kubernetes artifacts:
+The repo includes three environment targets for GCP, each producing Terraform + Kubernetes + Helm artifacts:
 
-| Target | Environment | Machine Type | GKE Cluster | Buckets |
-|--------|-------------|-------------|-------------|---------|
-| `dev.yml` | dev | e2-medium | dev-cluster | app-assets, app-uploads |
-| `test.yml` | test | e2-medium | test-cluster | app-assets, app-uploads, test-artifacts |
-| `prod.yml` | prod | e2-standard-4 | prod-cluster | app-assets, app-uploads, app-backups |
+| Target | Environment | Machine Type | GKE Cluster | Redis | Monitoring | Ingress |
+|--------|-------------|-------------|-------------|-------|------------|---------|
+| `dev.yml` | dev | e2-medium | dev-cluster | 1 instance (BASIC) | Prometheus + Grafana | 1 replica |
+| `test.yml` | test | e2-medium | test-cluster | 2 instances (BASIC) | Prometheus + Grafana | 2 replicas |
+| `prod.yml` | prod | e2-standard-4 | prod-cluster | 2 instances (STANDARD_HA) | Prometheus + Grafana (HA) | 3 replicas (LoadBalancer) |
 
-Each target compiles into 12 files:
-- **Terraform**: backend, provider, networking (VPC/subnets/firewall/NAT), IAM (service accounts), storage (GCS buckets), compute (bastion instance), kubernetes (GKE Autopilot)
+Each target generates ~20 files across three categories:
+- **Terraform**: backend, provider, networking (VPC/subnets/firewall/NAT), IAM (service accounts), storage (GCS buckets), compute (bastion instance), kubernetes (GKE Autopilot), redis (Memorystore)
 - **Kubernetes**: namespace, configmap, serviceaccount, deployment, service
+- **Helm**: nginx-ingress (direct chart), monitoring-stack (Python-customized chart with Prometheus + Grafana)
 
 ### Customizing a target for your project
 
@@ -164,16 +173,16 @@ spec:
     app_image: gcr.io/your-project/my-service:latest
 ```
 
-2. Compile:
+2. Generate:
 
 ```bash
-geni -t dev
+geni generate -t dev
 ```
 
 3. Deploy:
 
 ```bash
-cd compiled/dev
+cd generated/dev
 terraform init && terraform plan
 terraform apply
 
@@ -207,15 +216,15 @@ spec:
     cluster_name: staging-cluster
     machine_type: e2-standard-2   # bigger than dev
     # ... rest of data
-  output: compiled/staging        # separate output dir
+  output: generated/staging        # separate output dir
   resources:
     # same resources as dev, or add/remove as needed
 ```
 
-Compile:
+Generate:
 
 ```bash
-geni -t staging
+geni generate -t staging
 ```
 
 ### Adding a new resource to a target
@@ -268,16 +277,15 @@ class DatabaseTemplate(Template):
         db_name: ${{ data.db_name }}
 ```
 
-3. Compile:
+3. Generate:
 
 ```bash
-geni -t dev
-# [+] Wrote 13 files for target 'dev'
+geni generate -t dev
 ```
 
 ### Removing a resource
 
-Delete the resource block from the target YAML and recompile. The compiled output is fully regenerated each time.
+Delete the resource block from the target YAML and regenerate. The output is fully regenerated each time.
 
 ---
 
@@ -295,15 +303,22 @@ metadata:
 spec:
   data:                     # global variables available to all resources
     key: value
-  output: <string>          # output directory for compiled artifacts
+  output: <string>          # output directory for generated artifacts
   resources:
     <resource-name>:
       template: <path>      # path to template (relative to templates_dir)
-      params:               # parameters passed to the template
+      chart:                # OR a Helm chart source
+        path: <local-path>  #   local chart
+        # OR
+        repo: <url>         #   registry chart
+        name: <chart-name>
+        version: <version>
+      values: <path>        # optional values file for charts
+      params:               # parameters passed to the template or chart
         key: value
 ```
 
-Each resource must specify exactly one source: `template`, `chart`, or `generator`.
+Each resource must specify exactly one source: `template` or `chart`.
 
 ### Data References
 
@@ -407,9 +422,143 @@ storage:
 
 ---
 
+## render_static -- Reusing Static Templates from Python
+
+Python templates can render static HCL/JSON templates with `${{ var }}` substitution using `context.render_static()`. This avoids converting large Terraform HCL to Python dicts -- write the HCL once as a static template, then loop over it from Python.
+
+### render_static (HCL / text)
+
+```python
+# templates/terraform/redis.py
+from geni.template import Template, TerraformHCL, RenderContext
+
+class RedisTemplate(Template):
+    def render(self, context):
+        p = context.params
+        blocks = []
+        for instance in p["instances"]:
+            hcl = context.render_static("terraform/redis.tf", {
+                "resource_name": instance["name"].replace("-", "_"),
+                "instance_name": f"{p['project']}-{p['environment']}-{instance['name']}",
+                "project": p["project"],
+                "region": p["region"],
+                "tier": instance.get("tier", "BASIC"),
+                "memory_size_gb": instance.get("memory_size_gb", 1),
+            })
+            blocks.append(hcl)
+        return TerraformHCL("redis.tf", "\n".join(blocks))
+```
+
+Where `templates/terraform/redis.tf` is a standard HCL file with placeholders:
+
+```hcl
+resource "google_redis_instance" "${{ resource_name }}" {
+  name           = "${{ instance_name }}"
+  project        = "${{ project }}"
+  region         = "${{ region }}"
+  tier           = "${{ tier }}"
+  memory_size_gb = ${{ memory_size_gb }}
+}
+```
+
+### render_static_json (JSON / .tf.json)
+
+For JSON-based templates, `render_static_json` returns a parsed `dict`:
+
+```python
+tf = context.render_static_json("terraform/bucket.tf.json", {
+    "bucket_name": "my-bucket",
+    "project": "my-project",
+})
+# tf is a dict -- merge, modify, combine as needed
+```
+
+---
+
+## Helm Integration
+
+### Direct chart resources
+
+geni can render Helm charts directly as part of generation. Charts are rendered using `helm template` and output as-is:
+
+```yaml
+resources:
+  # Local chart
+  ingress:
+    chart:
+      path: charts/nginx-ingress
+    params:
+      namespace: my-app
+      replicaCount: 2
+
+  # Registry chart
+  cert-manager:
+    chart:
+      repo: https://charts.jetstack.io
+      name: cert-manager
+      version: 1.14.0
+    params:
+      installCRDs: true
+```
+
+Values files support `${{ }}` substitution. `params` are merged into values with `params` taking precedence.
+
+### Helm via Python templates (render_helm)
+
+Python templates can render Helm charts and post-process the output -- inject labels, filter manifests, add annotations, or combine multiple charts:
+
+```python
+# templates/kubernetes/monitoring.py
+from geni.template import Template, KubernetesManifest, RenderContext
+
+class MonitoringTemplate(Template):
+    def render(self, context):
+        p = context.params
+
+        # Render helm chart, get back list of parsed manifest dicts
+        manifests = context.render_helm(
+            chart=p["chart_path"],
+            release_name=f"{p['environment']}-monitoring",
+            values={"namespace": "monitoring", "prometheus": {"retention": p["retention"]}},
+            namespace="monitoring",
+        )
+
+        results = []
+        for m in manifests:
+            kind = m.get("kind", "unknown")
+            # Inject custom labels into every manifest
+            m.setdefault("metadata", {}).setdefault("labels", {})["environment"] = p["environment"]
+
+            # Add alert routing annotation to Deployments
+            if kind == "Deployment" and p.get("alert_channel"):
+                m["metadata"].setdefault("annotations", {})["alert-channel"] = p["alert_channel"]
+
+            filename = f"monitoring-{kind.lower()}-{m['metadata'].get('name', 'unknown')}.yml"
+            results.append(KubernetesManifest(filename, m))
+        return results
+```
+
+For registry charts, use `render_helm_registry`:
+
+```python
+manifests = context.render_helm_registry(
+    repo="https://charts.jetstack.io",
+    name="cert-manager",
+    version="1.14.0",
+    values={"installCRDs": True},
+)
+```
+
+| Approach | Target YAML | What you get |
+|----------|-------------|--------------|
+| **Direct `chart:`** | `chart: { path: charts/nginx }` | Black box -- helm output as-is |
+| **Python + `render_helm()`** | `template: kubernetes/monitoring.py` | Full control -- filter, modify, combine manifests |
+
+---
+
 ## Common Workflows
 
-### Validate before compiling
+### Validate before generating
 
 ```bash
 geni validate -t dev          # validate a single target
@@ -420,7 +569,6 @@ geni validate                 # validate all targets
 
 ```bash
 geni -t dev --dry-run
-# [+] Would write 12 files for target 'dev'
 ```
 
 ### See what changed
@@ -429,52 +577,52 @@ geni -t dev --dry-run
 geni diff -t dev
 ```
 
-### Force recompile (skip incremental cache)
+### Force regenerate (skip incremental cache)
 
 ```bash
-geni -t dev --force
+geni generate -t dev --force
 ```
 
-### Compile all environments at once
+### Generate all environments at once
 
 ```bash
-geni
-# [+] Wrote 12 files for target 'dev'
-# [+] Wrote 12 files for target 'test'
-# [+] Wrote 12 files for target 'prod'
+geni generate
+# [+] Wrote 28 files for target 'dev'
+# [+] Wrote 28 files for target 'test'
+# [+] Wrote 28 files for target 'prod'
 ```
 
-### Deploy compiled output
+### Deploy generated output
 
 ```bash
 # Terraform
-cd compiled/dev
+cd generated/dev
 terraform init
 terraform plan -out=tfplan
 terraform apply tfplan
 
 # Kubernetes (after cluster is up)
-kubectl apply -f compiled/dev/00-namespace.yml
-kubectl apply -f compiled/dev/01-configmap.yml
-kubectl apply -f compiled/dev/02-serviceaccount.yml
-kubectl apply -f compiled/dev/03-deployment.yml
-kubectl apply -f compiled/dev/04-service.yml
+kubectl apply -f generated/dev/00-namespace.yml
+kubectl apply -f generated/dev/01-configmap.yml
+kubectl apply -f generated/dev/02-serviceaccount.yml
+kubectl apply -f generated/dev/03-deployment.yml
+kubectl apply -f generated/dev/04-service.yml
 ```
 
 ---
 
-## Incremental Compilation
+## Incremental Generation
 
-geni tracks state in `.geni-lock.json` inside each target's output directory. On subsequent runs, if the target YAML hasn't changed, compilation is skipped:
+geni tracks state in `.geni-lock.json` inside each target's output directory. On subsequent runs, if the target YAML hasn't changed, generation is skipped:
 
 ```
-INFO Target 'dev' is up to date; skipping. Use --force to recompile.
+INFO Target 'dev' is up to date; skipping. Use --force to regenerate.
 ```
 
 Use `--force` to bypass the cache:
 
 ```bash
-geni -t dev --force
+geni generate -t dev --force
 ```
 
 ---
@@ -499,7 +647,7 @@ Each has its own `QUICKSTART.md` with step-by-step instructions from install to 
 geni [OPTIONS] COMMAND [ARGS]
 ```
 
-When invoked without a subcommand, geni compiles directly: `geni -t dev` is equivalent to `geni compile -t dev`.
+When invoked without a subcommand, geni generates directly: `geni -t dev` is equivalent to `geni generate -t dev`.
 
 **Global options:**
 
@@ -507,47 +655,30 @@ When invoked without a subcommand, geni compiles directly: `geni -t dev` is equi
 |------|-------------|
 | `--version` | Show version and exit |
 | `-v, --verbose` | Increase verbosity (`-v` info, `-vv` debug) |
-| `-t, --target` | Target name to compile (without `.yml`) |
-| `--dry-run` | Show what would be compiled without writing |
-| `--force` | Force recompilation even if unchanged |
+| `-t, --target` | Target name to generate (without `.yml`) |
+| `--dry-run` | Show what would be generated without writing |
+| `--force` | Force regeneration even if unchanged |
 
 **Commands:**
 
-| Command | Description |
-|---------|-------------|
-| `geni compile` | Compile targets (also the default action) |
-| `geni validate` | Validate target YAML against the schema |
-| `geni diff` | Show what would change if recompiled |
-| `geni init` | Scaffold a new geni project |
-| `geni migrate` | Migrate legacy format targets to v1alpha1 |
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `geni generate` | `geni g` | Generate targets (also the default action) |
+| `geni validate` | | Validate target YAML against the schema |
+| `geni diff` | | Show what would change if regenerated |
+| `geni init` | | Scaffold a new geni project |
 
----
+**Examples:**
 
-## Helm Integration
-
-geni can render Helm charts as part of compilation:
-
-```yaml
-resources:
-  # Local chart
-  prometheus:
-    chart:
-      path: charts/prometheus
-    values: values/prometheus-values.yml
-    params:
-      retention: 30d
-
-  # Registry chart
-  cert-manager:
-    chart:
-      repo: https://charts.jetstack.io
-      name: cert-manager
-      version: 1.14.0
-    params:
-      installCRDs: true
+```bash
+geni generate -t dev       # generate a single target
+geni g -t dev              # same thing, short alias
+geni generate              # generate all targets
+geni -t dev                # generate (default action, no subcommand needed)
+geni g -t dev --force      # force regenerate
+geni validate -t dev       # validate before generating
+geni diff -t dev           # preview changes
 ```
-
-Values files support `${{ }}` substitution. `params` are merged into values with `params` taking precedence.
 
 ---
 
@@ -558,7 +689,7 @@ Project configuration lives in `.geni.yml` at the project root:
 ```yaml
 templates_dir: templates       # where templates live
 targets_dir: targets           # where target YAMLs live
-compiled_dir: compiled         # base output directory
+generated_dir: generated       # base output directory
 ```
 
 All paths are relative to the project root. Defaults are used if `.geni.yml` doesn't exist.
@@ -571,24 +702,29 @@ All paths are relative to the project root. Defaults are used if `.geni.yml` doe
 geni/
 ├── src/geni/                  # core package
 │   ├── cli.py                 # Click CLI entry point
-│   ├── compiler.py            # compilation orchestrator
+│   ├── generator.py           # generation orchestrator
 │   ├── engine.py              # template loading and rendering
 │   ├── schema.py              # Pydantic v2 target validation
-│   ├── template.py            # Template base class + GeneratedFile types
+│   ├── template.py            # Template base class, GeneratedFile types, RenderContext
 │   ├── writers.py             # file serialization
-│   ├── state.py               # lock file + atomic compilation
+│   ├── state.py               # lock file + atomic generation
 │   ├── config.py              # .geni.yml loader
-│   ├── compat.py              # legacy format migration
-│   ├── builtins/              # built-in template library
+│   ├── errors.py              # error classes
+│   ├── filters.py             # template filters
 │   └── integrations/          # helm, hcl2json
 ├── templates/                 # project templates
-│   ├── terraform/             # backend.tf, provider.tf, networking.py, ...
-│   └── kubernetes/            # sample_app.py
+│   ├── terraform/             # backend.tf, provider.tf, redis.tf (static)
+│   │                          # networking.py, iam.py, storage.py, compute.py,
+│   │                          # kubernetes.py, redis.py (Python)
+│   └── kubernetes/            # sample_app.py, monitoring.py
+├── charts/                    # Helm charts
+│   ├── nginx-ingress/         # simple nginx ingress chart
+│   └── monitoring-stack/      # Prometheus + Grafana chart
 ├── targets/                   # environment targets
 │   ├── dev.yml
 │   ├── test.yml
 │   └── prod.yml
-├── tests/                     # test suite (59 tests)
+├── tests/                     # test suite (56 tests)
 ├── quickstart/                # cloud-specific quickstart projects
 │   ├── gcp_project/
 │   ├── aws_project/
@@ -625,7 +761,7 @@ mypy src/geni/
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for compilation pipeline details, module design, template system internals, and mermaid diagrams.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for generation pipeline details, module design, template system internals, and mermaid diagrams.
 
 ---
 

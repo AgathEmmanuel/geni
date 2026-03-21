@@ -131,11 +131,8 @@ class TemplateEngine:
             return [GeneratedFile(resource_name + abs_path.suffix, rendered, ext)]
 
     def _substitute(self, content: str, context: RenderContext) -> str:
-        """Replace ${{ param_name }}, ${{ data.xxx }}, and legacy __var__ placeholders."""
-        # New-style ${{ }} placeholders
-        new_pattern = re.compile(r"\$\{\{\s*(.+?)\s*\}\}")
-        # Legacy __var__ placeholders (backward compat with old templates)
-        legacy_pattern = re.compile(r"__([a-zA-Z0-9_]+)__")
+        """Replace ${{ param_name }} and ${{ data.xxx }} placeholders."""
+        pattern = re.compile(r"\$\{\{\s*(.+?)\s*\}\}")
 
         def _replace(match: re.Match) -> str:
             key = match.group(1)
@@ -155,9 +152,7 @@ class TemplateEngine:
                 return json.dumps(value)
             return str(value)
 
-        content = new_pattern.sub(_replace, content)
-        content = legacy_pattern.sub(_replace, content)
-        return content
+        return pattern.sub(_replace, content)
 
     @staticmethod
     def _lookup(data: dict[str, Any], dotted_key: str) -> Any | None:

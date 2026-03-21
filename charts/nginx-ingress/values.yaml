@@ -1,0 +1,13 @@
+replicaCount: 1
+namespace: default
+image: nginx:1.25-alpine
+serviceType: ClusterIP
+servicePort: 80
+containerPort: 80
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi

@@ -1,30 +1,30 @@
 # Geni Architecture
 
-Comprehensive architecture documentation for Geni, a Python-powered infrastructure-as-code compiler.
+Comprehensive architecture documentation for Geni, a Python-powered infrastructure-as-code generator.
 
 ---
 
 ## 1. System Overview
 
-Geni takes declarative YAML target files and compiles them into concrete infrastructure artifacts -- Terraform configurations, Kubernetes manifests, and Helm charts.
+Geni takes declarative YAML target files and generates concrete infrastructure artifacts -- Terraform configurations, Kubernetes manifests, and Helm charts.
 
 ```mermaid
 flowchart LR
     User["User / Developer"]
     YAML["Target YAML<br/>one per environment"]
-    Compiler["Geni Compiler"]
+    Generator["Geni Generator"]
     TF["Terraform<br/>.tf.json / .tf"]
     K8s["Kubernetes<br/>.yml manifests"]
     Helm["Helm Charts<br/>rendered"]
 
     User -->|writes| YAML
-    YAML -->|input| Compiler
-    Compiler -->|outputs| TF
-    Compiler -->|outputs| K8s
-    Compiler -->|outputs| Helm
+    YAML -->|input| Generator
+    Generator -->|outputs| TF
+    Generator -->|outputs| K8s
+    Generator -->|outputs| Helm
 ```
 
-The compiler acts as a single translation layer between human-authored declarations and tool-specific output formats. One YAML file per environment drives all infrastructure generation consistently.
+The generator acts as a single translation layer between human-authored declarations and tool-specific output formats. One YAML file per environment drives all infrastructure generation consistently.
 
 ---
 
@@ -37,12 +37,12 @@ graph TB
     end
 
     subgraph Core
-        Compiler["Compiler<br/>compiler.py<br/>GeniCompiler orchestrator"]
+        Generator["Generator<br/>generator.py<br/>GeniGenerator orchestrator"]
         Schema["Schema<br/>schema.py<br/>Pydantic v2 validation"]
         Engine["Template Engine<br/>engine.py<br/>Loads and executes templates"]
-        Templates["Template Base<br/>template.py<br/>GeneratedFile types"]
+        Templates["Template Base<br/>template.py<br/>GeneratedFile types + RenderContext"]
         Writers["Writers<br/>writers.py<br/>File serialization"]
-        State["State<br/>state.py<br/>Lock file + atomic compilation"]
+        State["State<br/>state.py<br/>Lock file + atomic generation"]
     end
 
     subgraph Integrations
@@ -50,89 +50,89 @@ graph TB
         HCL["HCL<br/>hcl.py<br/>hcl2json conversion"]
     end
 
-    subgraph Migration
-        Compat["Compat<br/>compat.py<br/>Legacy format migration"]
-    end
-
     subgraph Config
         GeniConfig["Config<br/>config.py<br/>.geni.yml loading"]
     end
 
-    CLI --> Compiler
+    CLI --> Generator
     CLI --> GeniConfig
-    Compiler --> Schema
-    Compiler --> Engine
-    Compiler --> Writers
-    Compiler --> State
-    Compiler --> HelmInt
-    Compiler --> HCL
-    Compiler --> Compat
+    Generator --> Schema
+    Generator --> Engine
+    Generator --> Writers
+    Generator --> State
+    Generator --> HelmInt
+    Generator --> HCL
     Engine --> Templates
+    Templates -->|render_helm| HelmInt
 ```
 
-| Component | File | Responsibility |
+| Module | File | Responsibility |
 |-----------|------|---------------|
-| **CLI** | `cli.py` | Parses commands and flags, dispatches to the compiler |
-| **Compiler** | `compiler.py` | Central orchestrator -- validation, rendering, output |
+| **CLI** | `cli.py` | Parses commands and flags, dispatches to the generator |
+| **Generator** | `generator.py` | Central orchestrator -- validation, rendering, output |
 | **Schema** | `schema.py` | Pydantic models for target YAML validation |
 | **Engine** | `engine.py` | Discovers, loads, and executes templates |
-| **Templates** | `template.py` | Base classes and GeneratedFile types |
+| **Templates** | `template.py` | Base classes, GeneratedFile types, and RenderContext with built-in helpers |
 | **Writers** | `writers.py` | Serializes GeneratedFile objects to disk |
 | **State** | `state.py` | Lock files and atomic staging/swap |
 | **Helm** | `integrations/helm.py` | Chart resolution (local + registry) and rendering |
 | **HCL** | `integrations/hcl.py` | HCL-to-JSON conversion via hcl2json |
-| **Compat** | `compat.py` | Legacy target format detection and migration |
 | **Config** | `config.py` | Project-level `.geni.yml` configuration |
 
 ---
 
-## 3. Compilation Flow
+## 3. Generation Flow
 
 ```mermaid
 sequenceDiagram
     participant User
     participant CLI as CLI
-    participant Compiler as Compiler
+    participant Generator as Generator
     participant Schema as Schema
-    participant Compat as Compat
     participant Engine as TemplateEngine
+    participant Helm as HelmIntegration
     participant Writers as FileWriter
-    participant Atomic as AtomicCompiler
+    participant Atomic as AtomicGenerator
     participant Lock as LockFile
 
-    User->>CLI: geni -t prod
-    CLI->>Compiler: compile_target(path)
-    Compiler->>Schema: parse YAML
-    Schema->>Compat: legacy format?
-    Compat-->>Schema: upgrade if needed
+    User->>CLI: geni generate -t prod
+    CLI->>Generator: generate_target(path)
+    Generator->>Schema: parse YAML
     Schema->>Schema: Pydantic validate
-    Schema-->>Compiler: TargetManifest
+    Schema-->>Generator: TargetManifest
 
-    Compiler->>Compiler: resolve ${{ data.xxx }} refs
-    Compiler->>Lock: check input_hash
-    Lock-->>Compiler: unchanged? skip / proceed
+    Generator->>Generator: resolve ${{ data.xxx }} refs
+    Generator->>Lock: check input_hash
+    Lock-->>Generator: unchanged? skip / proceed
 
-    Compiler->>Atomic: enter staging context
+    Generator->>Atomic: enter staging context
 
     loop Each Resource
-        Compiler->>Engine: load_and_render(name, template, context)
-        alt Python Template (.py)
-            Engine->>Engine: importlib load module
-            Engine->>Engine: find Template subclass
-            Engine->>Engine: instance.render(context)
-        else Static Template (.tf/.yml/.json)
-            Engine->>Engine: read file content
-            Engine->>Engine: substitute ${{ var }} and __var__
-            Engine->>Engine: parse to appropriate type
+        alt Template Resource
+            Generator->>Engine: load_and_render(name, template, context)
+            alt Python Template (.py)
+                Engine->>Engine: importlib load module
+                Engine->>Engine: find Template subclass
+                Engine->>Engine: instance.render(context)
+                Note over Engine: context.render_static() for HCL/JSON
+                Note over Engine: context.render_helm() for Helm charts
+            else Static Template (.tf/.yml/.json)
+                Engine->>Engine: read file content
+                Engine->>Engine: substitute ${{ var }}
+                Engine->>Engine: parse to appropriate type
+            end
+            Engine-->>Generator: list[GeneratedFile]
+            Generator->>Writers: write_all(files)
+        else Chart Resource
+            Generator->>Helm: render_helm_chart(chart, values)
+            Helm-->>Generator: list of file paths
         end
-        Engine-->>Compiler: list[GeneratedFile]
-        Compiler->>Writers: write_all(files)
     end
 
     Atomic->>Atomic: atomic swap staging -> output
-    Compiler->>Lock: update hashes
-    Compiler->>Lock: save .geni-lock.json
-    Compiler-->>CLI: list of written paths
+    Generator->>Lock: update hashes
+    Generator->>Lock: save .geni-lock.json
+    Generator-->>CLI: list of written paths
     CLI-->>User: [+] Wrote N files
 ```
 
@@ -146,7 +146,7 @@ Key properties:
 
 ## 4. Template System
 
-### Two Template Modes
+### Three Rendering Paths
 
 ```mermaid
 flowchart TD
@@ -155,7 +155,7 @@ flowchart TD
 
     subgraph Static ["Static Template Path"]
         Read["Read file content"]
-        Sub["Substitute ${{ var }}<br/>and legacy __var__"]
+        Sub["Substitute ${{ var }}"]
         Parse["Parse to dict or<br/>keep as text"]
         GF1["GeneratedFile"]
         Read --> Sub --> Parse --> GF1
@@ -169,10 +169,44 @@ flowchart TD
         Import --> Find --> Exec --> GF2
     end
 
+    subgraph HelmDirect ["Direct Helm Chart Path"]
+        Resolve["Resolve chart<br/>(local or registry)"]
+        HelmTemplate["helm template"]
+        Files["Output files"]
+        Resolve --> HelmTemplate --> Files
+    end
+
     Engine --> Check
     Check -->|.tf .yml .json| Read
     Check -->|.py| Import
+    Check -->|chart: in target| Resolve
 ```
+
+### RenderContext Built-in Helpers
+
+Python templates receive a `RenderContext` that provides helper methods for composing output from other sources:
+
+```mermaid
+flowchart LR
+    subgraph RenderContext
+        RS["render_static()"]
+        RSJ["render_static_json()"]
+        RH["render_helm()"]
+        RHR["render_helm_registry()"]
+    end
+
+    HCL["Static .tf template"] --> RS --> Text["string"]
+    JSON["Static .tf.json template"] --> RSJ --> Dict["dict"]
+    LocalChart["Local Helm chart"] --> RH --> Manifests["list[dict]"]
+    Registry["Registry Helm chart"] --> RHR --> Manifests2["list[dict]"]
+```
+
+| Method | Input | Returns | Use Case |
+|--------|-------|---------|----------|
+| `render_static(path, params)` | `.tf`, `.yml`, text template | `str` | Render HCL/text with substitution |
+| `render_static_json(path, params)` | `.tf.json`, `.json` template | `dict` | Render JSON, get parsed dict |
+| `render_helm(chart, ...)` | Local Helm chart path | `list[dict]` | Render chart, get parsed manifests |
+| `render_helm_registry(repo, name, version, ...)` | Registry chart coordinates | `list[dict]` | Pull + render registry chart |
 
 ### Class Hierarchy
 
@@ -189,6 +223,10 @@ classDiagram
         +resources: dict
         +templates_dir: Path
         +output_dir: Path
+        +render_static(path, params) str
+        +render_static_json(path, params) dict
+        +render_helm(chart, ...) list~dict~
+        +render_helm_registry(repo, name, version, ...) list~dict~
     }
 
     class GeneratedFile {
@@ -227,7 +265,9 @@ classDiagram
 
 **Static templates** are files with `${{ var }}` placeholders. Best for simple, mostly-literal configurations.
 
-**Python templates** extend the `Template` base class with full Python logic -- loops, conditionals, API calls, multi-file output. A single Python template can return a list of `GeneratedFile` objects, acting as both template and generator.
+**Python templates** extend the `Template` base class with full Python logic -- loops, conditionals, API calls, multi-file output. They can call `render_static()` to reuse HCL/JSON templates or `render_helm()` to render and customize Helm charts programmatically.
+
+**Direct Helm charts** are referenced via `chart:` in the target YAML and rendered as-is via `helm template`.
 
 ---
 
@@ -256,7 +296,6 @@ classDiagram
     class ResourceDef {
         +template: str?
         +chart: ChartSource?
-        +generator: str?
         +values: str?
         +params: dict~str,Any~
     }
@@ -283,23 +322,23 @@ classDiagram
     ChartSource <|-- RegistryChart
 ```
 
-Each resource must specify exactly one of `template`, `chart`, or `generator`. The `params` dict is passed to the template at render time, with `${{ data.xxx }}` references resolved from the top-level `data` block.
+Each resource must specify exactly one of `template` or `chart`. The `params` dict is passed to the template at render time, with `${{ data.xxx }}` references resolved from the top-level `data` block.
 
 ---
 
 ## 6. State Management
 
-### Atomic Compilation
+### Atomic Generation
 
 ```mermaid
 flowchart TD
-    Start["Start compile"]
+    Start["Start generate"]
     Stage["Create .geni-staging-*/"]
     Write["Write all files to staging"]
     Check{Success?}
     Swap["Atomic rename<br/>staging -> output"]
     Restore["Restore .terraform/<br/>from backup"]
-    Done["Compilation complete"]
+    Done["Generation complete"]
     Cleanup["Delete staging<br/>Keep original output"]
     Error["Report error"]
 
@@ -308,20 +347,20 @@ flowchart TD
     Check -->|No| Cleanup --> Error
 ```
 
-### Incremental Compilation
+### Incremental Generation
 
 ```mermaid
 flowchart LR
     Input["Target YAML"]
     Hash["Compute SHA256"]
     Compare{Hash matches<br/>lock file?}
-    Skip["Skip compilation"]
-    Recompile["Full recompile"]
+    Skip["Skip generation"]
+    Regenerate["Full regenerate"]
     Update["Update .geni-lock.json"]
 
     Input --> Hash --> Compare
     Compare -->|match| Skip
-    Compare -->|mismatch or --force| Recompile --> Update
+    Compare -->|mismatch or --force| Regenerate --> Update
 ```
 
 Lock file structure (`.geni-lock.json`):
@@ -329,7 +368,7 @@ Lock file structure (`.geni-lock.json`):
 ```json
 {
   "version": 1,
-  "compiled_at": "2026-03-19T09:17:43+00:00",
+  "generated_at": "2026-03-19T09:17:43+00:00",
   "targets": {
     "example-prod": {
       "input_hash": "sha256:abc123...",
@@ -342,7 +381,7 @@ Lock file structure (`.geni-lock.json`):
 }
 ```
 
-The `.terraform/` directory is preserved across compilations -- it is backed up before swap and restored after.
+The `.terraform/` directory is preserved across generations -- it is backed up before swap and restored after.
 
 ---
 
@@ -362,6 +401,7 @@ flowchart TD
     subgraph Local ["User Templates"]
         LT["templates/*.py<br/>Project-local Python templates"]
         LS["templates/*.tf / *.yml<br/>Static templates"]
+        LC["charts/*<br/>Local Helm charts"]
     end
 
     subgraph Community ["Community Plugins"]
@@ -380,6 +420,8 @@ Templates are discovered from three sources:
 2. **Built-in templates** -- shipped with Geni in `geni.builtins`
 3. **Community plugins** -- installed via pip, registered under `geni.generators` entry points
 
+Helm charts can be local (in `charts/` directory) or pulled from registries.
+
 ---
 
 ## 8. User Workflows
@@ -390,8 +432,8 @@ Templates are discovered from three sources:
 flowchart LR
     Init["geni init"] --> Edit["Edit targets/*.yml<br/>Add templates/"]
     Edit --> Validate["geni validate"]
-    Validate --> Compile["geni compile"]
-    Compile --> Verify["Review compiled/"]
+    Validate --> Generate["geni generate"]
+    Generate --> Verify["Review generated/"]
     Verify --> Apply["terraform apply<br/>kubectl apply"]
 ```
 
@@ -401,9 +443,9 @@ flowchart LR
 flowchart LR
     Change["Edit template<br/>or target YAML"] --> Diff["geni diff -t prod"]
     Diff --> Review{Changes OK?}
-    Review -->|Yes| Compile["geni -t prod"]
+    Review -->|Yes| Generate["geni g -t prod"]
     Review -->|No| Change
-    Compile --> Commit["git commit"]
+    Generate --> Commit["git commit"]
 ```
 
 ### CI/CD Pipeline
@@ -413,8 +455,8 @@ flowchart LR
     Push["git push"] --> CI["CI Pipeline"]
     CI --> Lint["ruff check"]
     CI --> Test["pytest"]
-    CI --> Compile["geni compile --all"]
-    Compile --> Plan["terraform plan"]
+    CI --> Generate["geni generate --all"]
+    Generate --> Plan["terraform plan"]
     Plan --> Approve{PR Review}
     Approve -->|Merge| Apply["terraform apply"]
 ```
@@ -428,10 +470,10 @@ flowchart LR
 | **Strategy** | `TemplateEngine._render_python_template` vs `_render_static_template` | Different rendering strategies based on file type |
 | **Factory** | `TemplateEngine.load_and_render` | Discovers and instantiates Template subclasses dynamically |
 | **Builder** | `GeneratedFile` subclasses (`TerraformJSON`, `KubernetesManifest`) | Construct output artifacts with type-specific defaults |
-| **Context Manager** | `AtomicCompiler.__enter__/__exit__` | Safe staging/swap with automatic cleanup on failure |
+| **Context Manager** | `AtomicGenerator.__enter__/__exit__` | Safe staging/swap with automatic cleanup on failure |
 | **Template Method** | `Template.render()` | Base class defines interface, subclasses implement logic |
-| **Adapter** | `compat.upgrade_legacy_target` | Transforms old schema format to new without breaking changes |
-| **Facade** | `GeniCompiler` | Single interface over engine, writers, state, and integrations |
+| **Facade** | `GeniGenerator` | Single interface over engine, writers, state, and integrations |
+| **Composition** | `RenderContext.render_static/render_helm` | Templates compose output from other templates and Helm charts |
 
 ```mermaid
 flowchart TD
@@ -451,41 +493,42 @@ flowchart TD
     end
 
     subgraph ContextMgr ["Context Manager"]
-        AC["AtomicCompiler"]
+        AC["AtomicGenerator"]
     end
 
-    subgraph Adapter ["Adapter Pattern"]
-        CM["compat.py"]
-        OLD["Legacy YAML"] --> CM --> NEW["v1alpha1 YAML"]
+    subgraph Composition ["Composition via RenderContext"]
+        RC["RenderContext"]
+        RC -->|render_static| StaticTpl["Static templates"]
+        RC -->|render_helm| HelmCharts["Helm charts"]
     end
 ```
 
 ---
 
-## 10. Future: Agentic Architecture (Option A)
+## 10. Future: Agentic Architecture
 
-An LLM agent sits between the user and Geni, translating natural language requirements into target YAML. The human retains full review authority before any compilation or deployment occurs.
+An LLM agent sits between the user and Geni, translating natural language requirements into target YAML. The human retains full review authority before any generation or deployment occurs.
 
 ```mermaid
 flowchart TD
     User["User<br/>natural language"]
     Agent["LLM Agent<br/>requirement translator"]
     Interview["Clarifying questions"]
-    Generate["Generate / modify<br/>target YAML"]
+    GenerateYAML["Generate / modify<br/>target YAML"]
     Review["Human Review<br/>diff in PR"]
     Approved{Approved?}
-    Compile["geni compile"]
-    Artifacts["Compiled Artifacts"]
+    Generate["geni generate"]
+    Artifacts["Generated Artifacts"]
     GitOps["GitOps Pipeline<br/>ArgoCD / Flux"]
     Deploy["Infrastructure<br/>Deployed"]
 
     User --> Agent
     Agent --> Interview --> Agent
-    Agent --> Generate --> Review
+    Agent --> GenerateYAML --> Review
     Review --> Approved
-    Approved -->|yes| Compile
+    Approved -->|yes| Generate
     Approved -->|no| Agent
-    Compile --> Artifacts --> GitOps --> Deploy
+    Generate --> Artifacts --> GitOps --> Deploy
 ```
 
 ```mermaid
@@ -493,7 +536,7 @@ sequenceDiagram
     participant User
     participant Agent as LLM Agent
     participant Git as Git Repository
-    participant Geni as Geni Compiler
+    participant Geni as Geni Generator
     participant GitOps as GitOps Controller
 
     User->>Agent: "Add a Redis cache to staging"
@@ -503,10 +546,10 @@ sequenceDiagram
     Agent->>User: Propose diff for review
     User->>Agent: Approve
     Agent->>Git: Commit updated YAML
-    Git->>Geni: CI triggers geni compile
-    Geni->>Git: Commit compiled artifacts
+    Git->>Geni: CI triggers geni generate
+    Geni->>Git: Commit generated artifacts
     Git->>GitOps: Sync detected
     GitOps-->>User: Redis cache running in staging
 ```
 
-The agent's job is **requirements to YAML**. Geni's job is **YAML to infrastructure**. The YAML is the contract between them -- human-readable, git-tracked, reviewable. The agent never bypasses the compiler or deploys directly.
+The agent's job is **requirements to YAML**. Geni's job is **YAML to infrastructure**. The YAML is the contract between them -- human-readable, git-tracked, reviewable. The agent never bypasses the generator or deploys directly.

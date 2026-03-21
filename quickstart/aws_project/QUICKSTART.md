@@ -1,6 +1,6 @@
 # AWS Quickstart with Geni
 
-This guide walks you through deploying a complete AWS infrastructure stack using **geni** -- an IaC compilation tool that transforms YAML targets into Terraform and Kubernetes artifacts using Python templates.
+This guide walks you through deploying a complete AWS infrastructure stack using **geni** -- an IaC generation tool that transforms YAML targets into Terraform and Kubernetes artifacts using Python templates.
 
 The stack includes: VPC networking, EKS cluster, RDS PostgreSQL, EC2 bastion host, S3 buckets, IAM roles with IRSA, and a sample Kubernetes application.
 
@@ -10,7 +10,7 @@ The stack includes: VPC networking, EKS cluster, RDS PostgreSQL, EC2 bastion hos
 2. [Install Geni](#2-install-geni)
 3. [Initial AWS Setup](#3-initial-aws-setup)
 4. [Configure the Project](#4-configure-the-project)
-5. [Compile with Geni](#5-compile-with-geni)
+5. [Generate with Geni](#5-generate-with-geni)
 6. [Deploy Infrastructure](#6-deploy-infrastructure)
 7. [Connect to EKS](#7-connect-to-eks)
 8. [Deploy Sample App](#8-deploy-sample-app)
@@ -188,18 +188,18 @@ Edit `targets/dev.yml` to customize your deployment. Key values to update:
 
 Also update the backend configuration in the `backend` resource to match the S3 bucket and DynamoDB table you created in Step 3.
 
-## 5. Compile with Geni
+## 5. Generate with Geni
 
-From the `aws_project` directory, compile the dev target:
+From the `aws_project` directory, generate the dev target:
 
 ```bash
-geni compile -t dev
+geni generate -t dev
 ```
 
-This will generate Terraform JSON files and Kubernetes manifests in the `compiled/dev/` directory:
+This will generate Terraform JSON files and Kubernetes manifests in the `generated/dev/` directory:
 
 ```
-compiled/dev/
+generated/dev/
 ├── backend.tf
 ├── provider.tf
 ├── networking.tf.json
@@ -215,8 +215,8 @@ compiled/dev/
 Inspect the generated files to verify they match your expectations:
 
 ```bash
-ls -la compiled/dev/
-cat compiled/dev/networking.tf.json | python3 -m json.tool | head -50
+ls -la generated/dev/
+cat generated/dev/networking.tf.json | python3 -m json.tool | head -50
 ```
 
 ## 6. Deploy Infrastructure
@@ -224,7 +224,7 @@ cat compiled/dev/networking.tf.json | python3 -m json.tool | head -50
 ### Initialize Terraform
 
 ```bash
-cd compiled/dev
+cd generated/dev
 terraform init
 ```
 
@@ -286,7 +286,7 @@ You should see the managed node group nodes in `Ready` state.
 Apply the generated Kubernetes manifests:
 
 ```bash
-kubectl apply -f compiled/dev/sample-app.yml
+kubectl apply -f generated/dev/sample-app.yml
 ```
 
 Verify the deployment:
@@ -339,7 +339,7 @@ chmod 600 bastion-key.pem
 ### Get the bastion public IP
 
 ```bash
-BASTION_IP=$(terraform -chdir=compiled/dev output -raw bastion_public_ip)
+BASTION_IP=$(terraform -chdir=generated/dev output -raw bastion_public_ip)
 echo "Bastion IP: ${BASTION_IP}"
 ```
 
@@ -352,7 +352,7 @@ ssh -i bastion-key.pem ec2-user@${BASTION_IP}
 ### Alternative: Connect via SSM (no SSH key needed)
 
 ```bash
-INSTANCE_ID=$(terraform -chdir=compiled/dev output -raw bastion_instance_id)
+INSTANCE_ID=$(terraform -chdir=generated/dev output -raw bastion_instance_id)
 aws ssm start-session --target ${INSTANCE_ID}
 ```
 
@@ -406,11 +406,11 @@ kill %1
 
 ### Scaling the EKS node group
 
-Edit `targets/dev.yml` and update the scaling config, then recompile and apply:
+Edit `targets/dev.yml` and update the scaling config, then regenerate and apply:
 
 ```bash
-geni compile -t dev
-cd compiled/dev
+geni generate -t dev
+cd generated/dev
 terraform plan -out=tfplan
 terraform apply tfplan
 ```
@@ -431,7 +431,7 @@ buckets:
     versioning: false
 ```
 
-Then recompile and apply.
+Then regenerate and apply.
 
 ### Creating a new target environment (staging)
 
@@ -450,8 +450,8 @@ Edit `targets/staging.yml`:
 Compile and deploy:
 
 ```bash
-geni compile -t staging
-cd compiled/staging
+geni generate -t staging
+cd generated/staging
 terraform init
 terraform plan -out=tfplan
 terraform apply tfplan
@@ -459,17 +459,17 @@ terraform apply tfplan
 
 ### Updating Kubernetes manifests
 
-After modifying `targets/dev.yml`, recompile and reapply:
+After modifying `targets/dev.yml`, regenerate and reapply:
 
 ```bash
-geni compile -t dev
-kubectl apply -f compiled/dev/sample-app.yml
+geni generate -t dev
+kubectl apply -f generated/dev/sample-app.yml
 ```
 
 ### Viewing resource state
 
 ```bash
-cd compiled/dev
+cd generated/dev
 terraform state list
 terraform state show aws_eks_cluster.dev-cluster
 terraform state show aws_db_instance.main
@@ -480,13 +480,13 @@ terraform state show aws_db_instance.main
 ### Remove Kubernetes resources first
 
 ```bash
-kubectl delete -f compiled/dev/sample-app.yml
+kubectl delete -f generated/dev/sample-app.yml
 ```
 
 ### Destroy all Terraform-managed infrastructure
 
 ```bash
-cd compiled/dev
+cd generated/dev
 terraform destroy
 ```
 
@@ -509,16 +509,16 @@ aws dynamodb delete-table --table-name my-aws-project-tflock --region us-east-1
 
 ```bash
 rm -f bastion-key.pem
-rm -rf compiled/dev/.terraform
-rm -f compiled/dev/tfplan
-rm -f compiled/dev/terraform-outputs.json
+rm -rf generated/dev/.terraform
+rm -f generated/dev/tfplan
+rm -f generated/dev/terraform-outputs.json
 ```
 
 ## 13. Troubleshooting
 
-### Geni compilation fails
+### Geni generation fails
 
-**Symptom**: `geni compile -t dev` returns an error.
+**Symptom**: `geni generate -t dev` returns an error.
 
 ```bash
 # Verify .geni.yml exists and is valid
@@ -528,7 +528,7 @@ cat .geni.yml
 python3 -c "import yaml; yaml.safe_load(open('targets/dev.yml'))"
 
 # Run with verbose logging
-geni compile -t dev --verbose
+geni generate -t dev --verbose
 ```
 
 ### Terraform init fails with backend error

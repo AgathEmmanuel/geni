@@ -1,7 +1,10 @@
 from __future__ import annotations
+import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 from pathlib import Path
+
 
 @dataclass
 class GeneratedFile:
@@ -10,34 +13,171 @@ class GeneratedFile:
     content: Any            # dict for JSON/YAML, str for raw text
     file_type: str          # "tf.json", "yaml", "tf", "raw"
 
+
 class TerraformJSON(GeneratedFile):
     """Terraform JSON file (.tf.json)"""
     def __init__(self, filename: str, content: dict):
         super().__init__(filename=filename, content=content, file_type="tf.json")
+
 
 class TerraformHCL(GeneratedFile):
     """Raw Terraform HCL file (.tf)"""
     def __init__(self, filename: str, content: str):
         super().__init__(filename=filename, content=content, file_type="tf")
 
+
 class KubernetesManifest(GeneratedFile):
     """Kubernetes YAML manifest"""
     def __init__(self, filename: str, content: dict | list[dict]):
         super().__init__(filename=filename, content=content, file_type="yaml")
+
 
 class RawFile(GeneratedFile):
     """Any raw text file"""
     def __init__(self, filename: str, content: str, ext: str = "txt"):
         super().__init__(filename=filename, content=content, file_type=ext)
 
+
+def _substitute(content: str, params: dict[str, Any]) -> str:
+    """Replace ${{ var }} placeholders with values from params."""
+    pattern = re.compile(r"\$\{\{\s*(.+?)\s*\}\}")
+
+    def _replace(match: re.Match) -> str:
+        key = match.group(1).strip()
+        # Support dotted lookup
+        value = params
+        for part in key.split("."):
+            if isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                return match.group(0)
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
+        return str(value)
+
+    return pattern.sub(_replace, content)
+
+
 @dataclass
 class RenderContext:
     """Context passed to template render methods."""
     params: dict[str, Any]
     data: dict[str, Any]
-    resources: dict[str, Any]     # outputs from previously compiled resources
+    resources: dict[str, Any]     # outputs from previously generated resources
     templates_dir: Path
     output_dir: Path
+    _helm_resolver: Any = field(default=None, repr=False)
+
+    def render_static(self, template_path: str, params: dict[str, Any]) -> str:
+        """Render a static template file with ${{ var }} substitution.
+
+        Returns the rendered content as a string. Works with any text-based
+        template (.tf, .yml, .json, etc.).
+
+        Usage in a Python template:
+
+            # Render an HCL template with per-item params
+            for bucket in context.params["buckets"]:
+                hcl = context.render_static("terraform/bucket.tf", {
+                    "name": bucket["name"],
+                    "project": context.params["project"],
+                })
+        """
+        path = self.templates_dir / template_path
+        if not path.exists():
+            raise FileNotFoundError(f"Template not found: {path}")
+        content = path.read_text(encoding="utf-8")
+        return _substitute(content, params)
+
+    def render_static_json(self, template_path: str, params: dict[str, Any]) -> dict:
+        """Render a static JSON or .tf.json template and return the parsed dict.
+
+        Usage in a Python template:
+
+            # Render a .tf.json template and get back a dict
+            tf = context.render_static_json("terraform/bucket.tf.json", {
+                "name": bucket["name"],
+            })
+        """
+        rendered = self.render_static(template_path, params)
+        return json.loads(rendered)
+
+    def render_helm(
+        self,
+        chart: str,
+        release_name: str = "release",
+        values: dict[str, Any] | None = None,
+        namespace: str = "default",
+    ) -> list[dict]:
+        """Render a local Helm chart and return parsed manifests as dicts.
+
+        Usage in a Python template:
+
+            manifests = context.render_helm("charts/nginx", values={"replicas": 3})
+            # Filter, modify, or combine manifests
+            for m in manifests:
+                if m["kind"] == "Deployment":
+                    m["spec"]["replicas"] = context.params["replicas"]
+        """
+        return self._do_render_helm(Path(chart), release_name, values or {}, namespace)
+
+    def render_helm_registry(
+        self,
+        repo: str,
+        name: str,
+        version: str,
+        release_name: str = "release",
+        values: dict[str, Any] | None = None,
+        namespace: str = "default",
+    ) -> list[dict]:
+        """Pull a Helm chart from a registry and return parsed manifests as dicts.
+
+        Usage in a Python template:
+
+            manifests = context.render_helm_registry(
+                repo="https://charts.jetstack.io",
+                name="cert-manager",
+                version="1.14.0",
+                values={"installCRDs": True},
+            )
+        """
+        if self._helm_resolver is None:
+            from geni.errors import HelmError
+            raise HelmError(
+                "Helm resolver not available. render_helm_registry requires "
+                "the generator to provide a HelmChartResolver."
+            )
+        chart_path = self._helm_resolver.resolve(repo, name, version)
+        return self._do_render_helm(chart_path, release_name, values or {}, namespace)
+
+    def _do_render_helm(
+        self,
+        chart_path: Path,
+        release_name: str,
+        values: dict[str, Any],
+        namespace: str,
+    ) -> list[dict]:
+        """Internal: render a helm chart and parse YAML output into dicts."""
+        import tempfile
+        import yaml as _yaml
+        from geni.integrations.helm import render_helm_chart
+
+        with tempfile.TemporaryDirectory(prefix="geni-helm-") as tmpdir:
+            files = render_helm_chart(
+                chart_path=chart_path,
+                release_name=release_name,
+                values=values,
+                output_dir=Path(tmpdir),
+                namespace=namespace,
+            )
+            manifests: list[dict] = []
+            for f in files:
+                content = f.read_text(encoding="utf-8")
+                for doc in _yaml.safe_load_all(content):
+                    if doc:
+                        manifests.append(doc)
+            return manifests
+
 
 class Template:
     """Base class for Python templates.
