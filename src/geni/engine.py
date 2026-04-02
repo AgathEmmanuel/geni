@@ -8,8 +8,12 @@ import os
 from pathlib import Path
 from typing import Any
 
+import logging
+
 from geni.template import Template, GeneratedFile, RenderContext, TerraformJSON, TerraformHCL, KubernetesManifest
 from geni.errors import TemplateError
+
+logger = logging.getLogger(__name__)
 
 
 class TemplateEngine:
@@ -47,7 +51,14 @@ class TemplateEngine:
             )
 
         if not resolved_path.exists():
-            raise TemplateError(f"Template file not found: {abs_path}")
+            # Check if a similar file exists to give a helpful hint
+            parent = resolved_path.parent
+            hint = ""
+            if parent.exists():
+                similar = [f.name for f in parent.iterdir() if f.suffix in (".py", ".tf", ".yml", ".json")]
+                if similar:
+                    hint = f" Available templates in {parent.name}/: {', '.join(sorted(similar))}"
+            raise TemplateError(f"Template file not found: {abs_path}.{hint}")
 
         # Load the module dynamically
         module_name = f"geni_template_{resource_name}"
@@ -92,7 +103,13 @@ class TemplateEngine:
     ) -> list[GeneratedFile]:
         """Render a static template file with variable substitution."""
         if not abs_path.exists():
-            raise TemplateError(f"Template file not found: {abs_path}")
+            parent = abs_path.parent
+            hint = ""
+            if parent.exists():
+                similar = [f.name for f in parent.iterdir() if f.is_file()]
+                if similar:
+                    hint = f" Available files in {parent.name}/: {', '.join(sorted(similar))}"
+            raise TemplateError(f"Template file not found: {abs_path}.{hint}")
 
         raw_content = abs_path.read_text(encoding="utf-8")
         rendered = self._substitute(raw_content, context)
@@ -152,7 +169,17 @@ class TemplateEngine:
                 return json.dumps(value)
             return str(value)
 
-        return pattern.sub(_replace, content)
+        result = pattern.sub(_replace, content)
+
+        # Warn about unresolved placeholders
+        unresolved = pattern.findall(result)
+        if unresolved:
+            logger.warning(
+                f"Unresolved placeholders in template: {', '.join('${{{{ {} }}}}'.format(k) for k in unresolved)}. "
+                f"Check that these keys exist in params or data."
+            )
+
+        return result
 
     @staticmethod
     def _lookup(data: dict[str, Any], dotted_key: str) -> Any | None:

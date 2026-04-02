@@ -194,13 +194,31 @@ class GeniGenerator:
 
     def _load_and_validate(self, target_path: Path) -> TargetManifest:
         """Load and validate a target file."""
-        raw = yaml.safe_load(target_path.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
+        if not target_path.exists():
             raise GenerationError(
-                "Target file must be a YAML mapping", path=str(target_path)
+                f"Target file not found: {target_path}", path=str(target_path)
             )
 
-        return TargetManifest.model_validate(raw)
+        try:
+            raw = yaml.safe_load(target_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as e:
+            raise GenerationError(
+                f"Invalid YAML syntax in target file: {e}", path=str(target_path)
+            ) from e
+
+        if not isinstance(raw, dict):
+            raise GenerationError(
+                "Target file must be a YAML mapping (got "
+                f"{type(raw).__name__}). Check indentation and structure.",
+                path=str(target_path),
+            )
+
+        try:
+            return TargetManifest.model_validate(raw)
+        except Exception as e:
+            raise GenerationError(
+                f"Target validation failed: {e}", path=str(target_path)
+            ) from e
 
     def _do_generate(
         self,
@@ -215,22 +233,30 @@ class GeniGenerator:
         all_written: list[Path] = []
 
         for res_name, res_def in resources.items():
-            if res_def.template is not None:
-                written = self._generate_template_resource(
-                    res_name, res_def, data, generated_resources, staging_dir, writer
-                )
-                all_written.extend(written)
+            try:
+                if res_def.template is not None:
+                    written = self._generate_template_resource(
+                        res_name, res_def, data, generated_resources, staging_dir, writer
+                    )
+                    all_written.extend(written)
 
-            elif res_def.chart is not None:
-                written = self._generate_chart_resource(
-                    res_name, res_def, data, staging_dir
-                )
-                all_written.extend(written)
+                elif res_def.chart is not None:
+                    written = self._generate_chart_resource(
+                        res_name, res_def, data, staging_dir
+                    )
+                    all_written.extend(written)
 
-            else:
-                logger.warning(
-                    f"Resource '{res_name}' has no template or chart; skipping"
-                )
+                else:
+                    logger.warning(
+                        f"Resource '{res_name}': no template or chart found; skipping"
+                    )
+            except GeniError:
+                raise
+            except Exception as e:
+                raise GenerationError(
+                    f"Failed to generate resource '{res_name}': {e}",
+                    path=res_def.template or str(res_def.chart),
+                ) from e
 
         return all_written
 

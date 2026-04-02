@@ -320,6 +320,21 @@ spec:
 
 Each resource must specify exactly one source: `template` or `chart`.
 
+### JSON Output
+
+All commands support `-o json` for structured, machine-readable output that any script or AI agent can consume:
+
+```bash
+geni validate -t dev -o json
+# {"success": true, "results": [{"target": "dev", "valid": true, "resources": 8}]}
+
+geni generate -t dev -o json
+# {"success": true, "target": "dev", "action": "generate", "files_written": 28, "files": [...]}
+
+geni diff -t dev -o json
+# {"success": true, "target": "dev", "has_changes": false, "diff": null}
+```
+
 ### Data References
 
 Use `${{ data.xxx }}` in resource params to reference values from `spec.data`:
@@ -647,7 +662,7 @@ Each has its own `QUICKSTART.md` with step-by-step instructions from install to 
 geni [OPTIONS] COMMAND [ARGS]
 ```
 
-When invoked without a subcommand, geni generates directly: `geni -t dev` is equivalent to `geni generate -t dev`.
+When invoked without a subcommand, geni generates directly: `geni -t dev` is equivalent to `geni generate -t dev`. All commands support `-o json` for structured output.
 
 **Global options:**
 
@@ -658,6 +673,7 @@ When invoked without a subcommand, geni generates directly: `geni -t dev` is equ
 | `-t, --target` | Target name to generate (without `.yml`) |
 | `--dry-run` | Show what would be generated without writing |
 | `--force` | Force regeneration even if unchanged |
+| `-o, --output` | Output format: `text` (default) or `json` |
 
 **Commands:**
 
@@ -678,6 +694,7 @@ geni -t dev                # generate (default action, no subcommand needed)
 geni g -t dev --force      # force regenerate
 geni validate -t dev       # validate before generating
 geni diff -t dev           # preview changes
+geni -t dev -o json        # structured JSON output (works with any command)
 ```
 
 ---

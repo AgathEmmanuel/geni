@@ -27,5 +27,3 @@ class HelmError(GeniError):
     """Raised on helm-related errors."""
 
 
-class PluginError(GeniError):
-    """Raised on plugin discovery or execution errors."""

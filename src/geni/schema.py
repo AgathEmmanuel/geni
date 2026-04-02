@@ -64,7 +64,6 @@ class ResourceDef(BaseModel):
     template: Optional[str] = None
     chart: Optional[Union[ChartSource, dict[str, Any]]] = None
     values: Optional[str] = None
-    generator: Optional[str] = None
     params: dict[str, Any] = {}
 
     @model_validator(mode="before")
@@ -81,16 +80,16 @@ class ResourceDef(BaseModel):
         sources = [
             self.template is not None,
             self.chart is not None,
-            self.generator is not None,
         ]
         count = sum(sources)
         if count == 0:
             raise SchemaValidationError(
-                "Resource must specify exactly one of 'template', 'chart', or 'generator'; none were set"
+                "Resource must specify exactly one of 'template' or 'chart'; none were set. "
+                "Example: template: terraform/main.py  or  chart: {path: charts/my-chart}"
             )
         if count > 1:
             raise SchemaValidationError(
-                "Resource must specify exactly one of 'template', 'chart', or 'generator'; multiple were set"
+                "Resource must specify exactly one of 'template' or 'chart'; multiple were set"
             )
         return self
 

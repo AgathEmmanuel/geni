@@ -72,7 +72,7 @@ class TestResourceDef:
 
     def test_multiple_sources_raises(self):
         with pytest.raises(SchemaValidationError):
-            ResourceDef(template="a.tf", generator="b.py")
+            ResourceDef(template="a.tf", chart={"path": "charts/foo"})
 
 
 class TestTargetManifest:
